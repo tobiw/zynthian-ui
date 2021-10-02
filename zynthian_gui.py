@@ -84,6 +84,7 @@ from zyngui.zynthian_gui_stepsequencer import zynthian_gui_stepsequencer
 from zyngui.zynthian_gui_touchscreen_calibration import zynthian_gui_touchscreen_calibration
 if "autoeq" in zynthian_gui_config.experimental_features:
 	from zyngui.zynthian_gui_autoeq import zynthian_gui_autoeq
+from zynlibs.zynseq.zynseq import libseq
 
 #-------------------------------------------------------------------------------
 # Zynthian Main GUI Class
@@ -222,8 +223,6 @@ class zynthian_gui:
 		except Exception as e:
 			logging.error("ERROR initializing Controllers & MIDI-router: %s" % e)
 
-		except Exception as e:
-			logging.error("ERROR initializing Sequencer: %s" % e)
 
 	# ---------------------------------------------------------------------------
 	# MIDI Router Init & Config
@@ -912,6 +911,13 @@ class zynthian_gui:
 				self.layer_control(self.screens['layer'].root_layers[params[0]-1])
 			except:
 				logging.warning("Can't change to layer {}!".format(params[0]))
+
+		elif cuia == "TOGGLE_SEQUENCE":
+			try:
+				libseq.togglePlayState(self.screens['stepseq'].bank, params[0])
+			except:
+				pass
+
 
 
 	def custom_switch_ui_action(self, i, t):

@@ -30,6 +30,8 @@
 #include <jack/midiport.h> //provides JACK MIDI interface
 #include "zynmidicontroller.h" //exposes library methods as c functions
 #include <cstring> //provides strstr
+#include <lo/lo.h> //provides OSC interface
+#include <lo/lo_cpp.h> //provides C++ OSC interface
 
 #define DPRINTF(fmt, args...) if(g_bDebug) printf(fmt, ## args)
 
@@ -64,6 +66,8 @@ struct MIDI_MESSAGE {
 std::vector<MIDI_MESSAGE*> g_vSendQueue; // Queue of MIDI events to send
 bool g_bDebug = false; // True to output debug info
 bool g_bMutex = false; // Mutex lock for access to g_vSendQueue
+
+lo::Address g_osc("localhost", "1370");
 
 // ** Internal (non-public) functions  (not delcared in header so need to be in correct order in source file) **
 
@@ -180,6 +184,12 @@ inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
                         // Drum pads
                         sendDeviceMidi(0x99, pBuffer[1], g_nDrumOnColour);
                         sendMidi(pOutputBuffer, 0x99, pBuffer[1], pBuffer[2]);
+                    } else if(pBuffer[1] > 95 && pBuffer[1] < 104) {
+                        // Launch buttons 1-8
+                        g_osc.send("/cuia/TOGGLE_SEQUENCE", "i", pBuffer[1] - 96);
+                    } else if(pBuffer[1] > 111 && pBuffer[1] < 120) {
+                        // Launch buttons 9-16
+                        g_osc.send("/cuia/TOGGLE_SEQUENCE", "i", pBuffer[1] - 104);
                     }
                     break;
                 case 0x80:
@@ -206,14 +216,22 @@ inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
                         if(pBuffer[1] == 104) {
                             // Up button
                             DPRINTF("Up button %s\n", pBuffer[2]?"pressed":"released");
+                           if(pBuffer[2])
+                                g_osc.send("/cuia/BACK_UP");
                         } else if(pBuffer[1] == 105) {
                             // Down button
                             DPRINTF("Down button %s\n", pBuffer[2]?"pressed":"released");
+                           if(pBuffer[2])
+                                g_osc.send("/cuia/BACK_DOWN");
                         } else if(pBuffer[1] == 103) {
                             // Left button
                             DPRINTF("Left button %s\n", pBuffer[2]?"pressed":"released");
+                           if(pBuffer[2])
+                                g_osc.send("/cuia/SELECT_UP");
                         } else if(pBuffer[1] == 102) {
                             // Right button
+                           if(pBuffer[2])
+                                g_osc.send("/cuia/SELECT_DOWN");
                             DPRINTF("Right button %s\n", pBuffer[2]?"pressed":"released");
                         } else if(pBuffer[1] > 20 && pBuffer[1] < 29) {
                             // CC knobs
@@ -221,27 +239,39 @@ inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
                         } else if(pBuffer[1] == 115) {
                             // Play button
                             DPRINTF("Shift+Play button %s\n", pBuffer[2]?"pressed":"released");
+                           if(pBuffer[2])
+                               g_osc.send("/cuia/TOGGLE_AUDIO_PLAY");
                         } else if(pBuffer[1] == 117) {
                             // Record button
                             DPRINTF("Shift+Record button %s\n", pBuffer[2]?"pressed":"released");
+                           if(pBuffer[2])
+                                g_osc.send("/cuia/TOGGLE_AUDIO_RECORD");
                         }
                     } else {
                         // Shift not held
                         if(pBuffer[1] == 104) {
                             // Launch button
                             DPRINTF("Launch button %s\n", pBuffer[2]?"pressed":"released");
+                           if(pBuffer[2])
+                                g_osc.send("/cuia/SWITCH_SELECT_SHORT");
                         } else if(pBuffer[1] == 105) {
                             // Stop/Solo/Mute button
                             DPRINTF("Stop/Solo/Mute button %s\n", pBuffer[2]?"pressed":"released");
+                            if(pBuffer[2])
+                                g_osc.send("/cuia/SWITCH_BACK_SHORT");
                         } else if(pBuffer[1] > 20 && pBuffer[1] < 29) {
                             // CC knobs
                             sendMidi(pOutputBuffer, 0xb0 | g_nMidiChannel, pBuffer[1] + g_nCCoffset, pBuffer[2]);
                         } else if(pBuffer[1] == 115) {
                             // Play button
                             DPRINTF("Play button %s\n", pBuffer[2]?"pressed":"released");
+                           if(pBuffer[2])
+                                g_osc.send("/cuia/TOGGLE_MIDI_PLAY");
                         } else if(pBuffer[1] == 117) {
                             // Record button
                             DPRINTF("Record button %s\n", pBuffer[2]?"pressed":"released");
+                           if(pBuffer[2])
+                                g_osc.send("/cuia/TOGGLE_MIDI_RECORD");
                         }
                     }
                     break;
