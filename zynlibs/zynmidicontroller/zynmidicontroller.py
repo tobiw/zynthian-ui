@@ -29,7 +29,6 @@ from os.path import dirname, realpath
 
 libcontroller = None
 
-
 #-------------------------------------------------------------------------------
 # 	Zynthian MIDI Controller Library Wrapper
 #
@@ -45,10 +44,13 @@ libcontroller = None
 #	Initiate library - performed by zynmidicontroller module
 def init():
 	global libcontroller
+	if libcontroller:
+	 	return
 	try:
-		libcontroller=ctypes.cdll.LoadLibrary(dirname(realpath(__file__))+"/build/libzynmidicontroller.so")
+		libcontroller = ctypes.cdll.LoadLibrary(dirname(realpath(__file__))+"/build/libzynmidicontroller.so")
+		libcontroller.getSupported.restype = ctypes.c_char_p
 	except Exception as e:
-		libseq=None
+		libcontroller=None
 		print("Can't initialise zynmidicontroller library: %s" % str(e))
 
 
@@ -58,6 +60,17 @@ def destroy():
 	if libcontroller:
 		dlclose(libcontroller._handle)
 	libcontroller = None
+
+
+#	Get supported interface
+#	rest: True to reset to start of list
+#	Returns: Name of MIDI port alias for next supported device or None if end of list
+#	If a supported device is already connected then only this alias will be returned
+def get_supported(reset):
+	result = libcontroller.getSupported(reset)
+	if result:
+		return result.decode("utf-8")
+	return None
 
 
 #-------------------------------------------------------------------------------

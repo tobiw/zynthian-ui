@@ -29,7 +29,7 @@
 #include <jack/jack.h> //provides JACK interface
 #include <jack/midiport.h> //provides JACK MIDI interface
 #include "zynmidicontroller.h" //exposes library methods as c functions
-#include <cstring> //provides strcmp
+#include <cstring> //provides strstr
 
 #define DPRINTF(fmt, args...) if(g_bDebug) printf(fmt, ## args)
 
@@ -37,10 +37,13 @@ jack_port_t * g_pInputPortDevice; // Pointer to the JACK input port connected to
 jack_port_t * g_pOutputPortDevice; // Pointer to the JACK output port connected to controller
 jack_port_t * g_pOutputPort; // Pointer to the JACK output port connected to zynmidirouter
 jack_client_t *g_pJackClient = NULL; // Pointer to the JACK client
-bool g_bInputConnected = false; // True if MIDI connected to MIDI controller input and output
-bool g_bOutputConnected = false; // True if MIDI connected to MIDI controller input and output
+unsigned int g_nInputProtocol = -1; // Value of the protocol used by controller connected to MIDI
+unsigned int g_nOutputProtocol = -1; // Value of the protocol used by controller connected to MIDI
+unsigned int g_nProtocol = -1; // Index of the protocol to use for device control
 bool g_bShift = false; // True if shift button is pressed
 
+const char* g_sSupported[] = {"Launchkey-Mini-MK3-MIDI-2"};
+size_t g_nSupportedQuant = sizeof(g_sSupported) / sizeof(const char*);
 int g_nDrumPads[] = {40,41,42,43,44,45,46,47,48,49,50,51,36,37,38,39,40,41,42,43,44,45,46,47};
 int g_nSessionPads[] = {96,97,98,99,100,101,102,103,112,113,114,115,116,117,118,119};
 int g_nPadColour[] = {67,35,9,51,105,63,94,126,67,35,9,51,105,63,94,126};
@@ -73,7 +76,9 @@ void enableDebug(bool bEnable)
 
 // Check if both device input and output are connected
 bool isDeviceConnected() {
-    return g_bOutputConnected & g_bInputConnected;
+    if(g_nInputProtocol == g_nOutputProtocol)
+        g_nProtocol = g_nInputProtocol;
+    return g_nProtocol != -1;
 }
 
 // Add a MIDI command to queue to be sent on next jack cycle
@@ -118,17 +123,37 @@ void selectMode(int mode) {
     sendDeviceMidi(0xbf, 3, mode);
 }
 
-// Initialise LaunchKey device
-void initLaunchkey() {
+void enableDevice(bool enable) {
     if(!isDeviceConnected())
         return;
-    printf("Initialising LaunckKey\n");
-    enableSession(true);
-    for(int pad = 0; pad < 16; ++pad)
-        sendDeviceMidi(0x99, g_nDrumPads[pad], g_nDrumColour);
-    for(int pad = 0; pad < 16; ++pad)
-        stopped(pad);
-    selectKnobs(1); // Select "Volume" for CC knobs (to avoid undefined state)
+    switch(g_nProtocol) {
+        case 0:
+            // Novation Launchkey Mini
+            sendDeviceMidi(0x9f, 12, enable?127:0);
+            DPRINTF("\tSession mode %s\n", enable?"enabled":"disabled");
+            if(!enable)
+                return;
+            for(int pad = 0; pad < 16; ++pad)
+                sendDeviceMidi(0x99, g_nDrumPads[pad], g_nDrumColour);
+            for(int pad = 0; pad < 16; ++pad)
+                stopped(pad);
+            selectKnobs(1); // Select "Volume" for CC knobs (to avoid undefined state)
+            break;
+        default:
+            break;
+    }
+}
+
+// Initialise LaunchKey device
+void initLaunchkey(size_t protocol) {
+    if(protocol >= g_nSupportedQuant)
+        return;
+    g_nProtocol = -1;
+    if(!isDeviceConnected())
+        return;
+    g_nProtocol = protocol;
+    printf("Initialising controller interface with protocol %s\n", g_sSupported[protocol]);
+    enableDevice(true);
 }
 
 // Send MIDI command to normal output (not to control device)
@@ -139,7 +164,95 @@ inline void sendMidi(void* pOutputBuffer, int command, int value1, int value2) {
     pBuffer[0] = command;
     pBuffer[1] = value1;
     pBuffer[2] = value2;
-    DPRINTF("Sending MIDI event 0x%2X,%d,%d to zynmidirouter\n", pBuffer[0],pBuffer[1],pBuffer[2]);
+    //DPRINTF("Sending MIDI event 0x%2X,%d,%d to zynmidirouter\n", pBuffer[0],pBuffer[1],pBuffer[2]);
+}
+
+// Handle received MIDI events based on selected protocol
+inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
+    int channel = pBuffer[0] & 0x0F + 1;
+    switch(g_nProtocol) {
+        case 0:
+            // Novation Launchkey Mini
+            switch(pBuffer[0] & 0xF0) {
+                case 0x90:
+                    //DPRINTF("NOTE ON: Channel %d Note %d Velocity %d\n", channel, pBuffer[1], pBuffer[2]);
+                    if(pBuffer[1] > 35 && pBuffer[1] < 52) {
+                        // Drum pads
+                        sendDeviceMidi(0x99, pBuffer[1], g_nDrumOnColour);
+                        sendMidi(pOutputBuffer, 0x99, pBuffer[1], pBuffer[2]);
+                    }
+                    break;
+                case 0x80:
+                    //DPRINTF("NOTE OFF: Channel %d Note %d Velocity %d\n", channel, pBuffer[1], pBuffer[2]);
+                    if(pBuffer[1] > 35 && pBuffer[1] < 52) {
+                        // Drum pads
+                        sendDeviceMidi(0x99, pBuffer[1], g_nDrumColour);
+                        sendMidi(pOutputBuffer, 0x89, pBuffer[1], pBuffer[2]);
+                    }
+                    break;
+                case 0xb0:
+                    //DPRINTF("CC: Channel %d CC %d Value %d\n", channel, pBuffer[1], pBuffer[2]);
+                    if(pBuffer[1] == 9) {
+                        // Switch CC offset
+                        g_nCCoffset = 8 * (pBuffer[2] - 1);
+                        DPRINTF("Changing CC knob bank to %d (%d-%d)\n", pBuffer[2], 21 + g_nCCoffset, 21 + g_nCCoffset + 7);
+                    } else if(pBuffer[1] == 108) {
+                        // Shift button
+                        g_bShift = pBuffer[2];
+                        DPRINTF("Shift button %s\n", g_bShift?"pressed":"released");
+                    }
+                    if(g_bShift) {
+                        // Shift held
+                        if(pBuffer[1] == 104) {
+                            // Up button
+                            DPRINTF("Up button %s\n", pBuffer[2]?"pressed":"released");
+                        } else if(pBuffer[1] == 105) {
+                            // Down button
+                            DPRINTF("Down button %s\n", pBuffer[2]?"pressed":"released");
+                        } else if(pBuffer[1] == 103) {
+                            // Left button
+                            DPRINTF("Left button %s\n", pBuffer[2]?"pressed":"released");
+                        } else if(pBuffer[1] == 102) {
+                            // Right button
+                            DPRINTF("Right button %s\n", pBuffer[2]?"pressed":"released");
+                        } else if(pBuffer[1] > 20 && pBuffer[1] < 29) {
+                            // CC knobs
+                            sendMidi(pOutputBuffer, 0xb0 | g_nMidiChannel, pBuffer[1] + g_nCCoffset + 40, pBuffer[2]);
+                        } else if(pBuffer[1] == 115) {
+                            // Play button
+                            DPRINTF("Shift+Play button %s\n", pBuffer[2]?"pressed":"released");
+                        } else if(pBuffer[1] == 117) {
+                            // Record button
+                            DPRINTF("Shift+Record button %s\n", pBuffer[2]?"pressed":"released");
+                        }
+                    } else {
+                        // Shift not held
+                        if(pBuffer[1] == 104) {
+                            // Launch button
+                            DPRINTF("Launch button %s\n", pBuffer[2]?"pressed":"released");
+                        } else if(pBuffer[1] == 105) {
+                            // Stop/Solo/Mute button
+                            DPRINTF("Stop/Solo/Mute button %s\n", pBuffer[2]?"pressed":"released");
+                        } else if(pBuffer[1] > 20 && pBuffer[1] < 29) {
+                            // CC knobs
+                            sendMidi(pOutputBuffer, 0xb0 | g_nMidiChannel, pBuffer[1] + g_nCCoffset, pBuffer[2]);
+                        } else if(pBuffer[1] == 115) {
+                            // Play button
+                            DPRINTF("Play button %s\n", pBuffer[2]?"pressed":"released");
+                        } else if(pBuffer[1] == 117) {
+                            // Record button
+                            DPRINTF("Record button %s\n", pBuffer[2]?"pressed":"released");
+                        }
+                    }
+                    break;
+                default:
+                    // MIDI command not handled
+                    break;
+            }
+        default:
+            // Protocol not defined
+            break;
+    }
 }
 
 /*  Process jack cycle - must complete within single jack period
@@ -157,6 +270,8 @@ inline void sendMidi(void* pOutputBuffer, int command, int value1, int value2) {
 */
 int onJackProcess(jack_nframes_t nFrames, void *pArgs)
 {
+    if(!g_pJackClient)
+        return 0;
     // Get output buffers that will be processed in this process cycle
     void* pOutputBuffer = jack_port_get_buffer(g_pOutputPort, nFrames);
     void* pDeviceOutputBuffer = jack_port_get_buffer(g_pOutputPortDevice, nFrames);
@@ -170,85 +285,8 @@ int onJackProcess(jack_nframes_t nFrames, void *pArgs)
     jack_nframes_t nCount = jack_midi_get_event_count(pInputBuffer);
     for(jack_nframes_t i = 0; i < nCount; i++)
     {
-        int channel = midiEvent.buffer[0] & 0x0F + 1;
         jack_midi_event_get(&midiEvent, pInputBuffer, i);
-        switch(midiEvent.buffer[0] & 0xF0)
-        {
-            case 0x90:
-                DPRINTF("NOTE ON: Channel %d Note %d Velocity %d\n", channel, midiEvent.buffer[1], midiEvent.buffer[2]);
-                if(midiEvent.buffer[1] > 35 && midiEvent.buffer[1] < 52) {
-                    // Drum pads
-                    sendDeviceMidi(0x99, midiEvent.buffer[1], g_nDrumOnColour);
-                    sendMidi(pOutputBuffer, 0x99, midiEvent.buffer[1], midiEvent.buffer[2]);
-                }
-                break;
-            case 0x80:
-                DPRINTF("NOTE OFF: Channel %d Note %d Velocity %d\n", channel, midiEvent.buffer[1], midiEvent.buffer[2]);
-                if(midiEvent.buffer[1] > 35 && midiEvent.buffer[1] < 52) {
-                    // Drum pads
-                    sendDeviceMidi(0x99, midiEvent.buffer[1], g_nDrumColour);
-                    sendMidi(pOutputBuffer, 0x89, midiEvent.buffer[1], midiEvent.buffer[2]);
-                }
-                break;
-            case 0xb0:
-                DPRINTF("CC: Channel %d CC %d Value %d\n", channel, midiEvent.buffer[1], midiEvent.buffer[2]);
-                if(midiEvent.buffer[1] == 9) {
-                    // Switch CC offset
-                    g_nCCoffset = 8 * (midiEvent.buffer[2] - 1);
-                    DPRINTF("Changing CC knob bank to %d (%d-%d)\n", midiEvent.buffer[2], 21 + g_nCCoffset, 21 + g_nCCoffset + 7);
-                } else if(midiEvent.buffer[1] == 108) {
-                    // Shift button
-                    g_bShift = midiEvent.buffer[2];
-                    DPRINTF("Shift button %s\n", g_bShift?"pressed":"released");
-                }
-
-                if(g_bShift) {
-                    // Shift held
-                    if(midiEvent.buffer[1] == 104) {
-                        // Up button
-                        DPRINTF("Up button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    } else if(midiEvent.buffer[1] == 105) {
-                        // Down button
-                        DPRINTF("Down button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    } else if(midiEvent.buffer[1] == 103) {
-                        // Left button
-                        DPRINTF("Left button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    } else if(midiEvent.buffer[1] == 102) {
-                        // Right button
-                        DPRINTF("Right button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    } else if(midiEvent.buffer[1] > 20 && midiEvent.buffer[1] < 29) {
-                        // CC knobs
-                        sendMidi(pOutputBuffer, 0xb0 | g_nMidiChannel, midiEvent.buffer[1] + g_nCCoffset + 40, midiEvent.buffer[2]);
-                    } else if(midiEvent.buffer[1] == 115) {
-                        // Play button
-                        DPRINTF("Shift+Play button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    } else if(midiEvent.buffer[1] == 117) {
-                        // Record button
-                        DPRINTF("Shift+Record button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    }
-                } else {
-                    // Shift not held
-                    if(midiEvent.buffer[1] == 104) {
-                        // Launch button
-                        DPRINTF("Launch button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    } else if(midiEvent.buffer[1] == 105) {
-                        // Stop/Solo/Mute button
-                        DPRINTF("Stop/Solo/Mute button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    } else if(midiEvent.buffer[1] > 20 && midiEvent.buffer[1] < 29) {
-                        // CC knobs
-                        sendMidi(pOutputBuffer, 0xb0 | g_nMidiChannel, midiEvent.buffer[1] + g_nCCoffset, midiEvent.buffer[2]);
-                    } else if(midiEvent.buffer[1] == 115) {
-                        // Play button
-                        DPRINTF("Play button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    } else if(midiEvent.buffer[1] == 117) {
-                        // Record button
-                        DPRINTF("Record button %s\n", midiEvent.buffer[2]?"pressed":"released");
-                    }
-                }
-                break;
-            default:
-                break;
-        }
+        protocolHandler(midiEvent.buffer, pOutputBuffer);
     }
 
     // Send MIDI output aligned with first sample of frame resulting in similar latency to audio
@@ -264,7 +302,7 @@ int onJackProcess(jack_nframes_t nFrames, void *pArgs)
         pBuffer[0] = (*it)->command;
         pBuffer[1] = (*it)->value1;
         pBuffer[2] = (*it)->value2;
-        DPRINTF("Sending MIDI event 0x%2X,%d,%d to device\n", pBuffer[0],pBuffer[1],pBuffer[2]);
+        //DPRINTF("Sending MIDI event 0x%2X,%d,%d to device\n", pBuffer[0],pBuffer[1],pBuffer[2]);
         delete(*it);
     }
     g_vSendQueue.clear(); //!@todo May clear unsent messages if there was an issue with the buffer
@@ -280,6 +318,8 @@ void onJackConnect(jack_port_id_t port_a, jack_port_id_t port_b, int connect, vo
         Check if it is connect or disconnect
         For now just accept one supported device and drop all others - may add ports for multiple devices in future
     */
+    if(!g_pJackClient)
+        return;
     DPRINTF("connection: %d %s %d\n", port_a, connect?"connected to":"disconnected from", port_b);
     jack_port_t* pSrcPort = jack_port_by_id(g_pJackClient, port_a);
     jack_port_t* pDstPort = jack_port_by_id(g_pJackClient, port_b);
@@ -288,11 +328,13 @@ void onJackConnect(jack_port_id_t port_a, jack_port_id_t port_b, int connect, vo
         aliases[0] = (char *) malloc (jack_port_name_size());
         aliases[1] = (char *) malloc (jack_port_name_size());
         int nAliases = jack_port_get_aliases(pSrcPort, aliases);
-        for(int i=0; i < nAliases; ++i) {
-            if(strstr(aliases[i], "Launchkey-Mini-MK3-MIDI-2")) {
-                g_bInputConnected = connect;
-                DPRINTF("Launchkey Mini Mk3 control port %s zynmidicontroller input\n", g_bInputConnected?"connected to":"disconnected from");
-                initLaunchkey();
+        for(int i = 0; i < nAliases; ++i) {
+            for(int j = 0; j < g_nSupportedQuant; ++j) {
+                if(strstr(aliases[i], g_sSupported[j])) {
+                    g_nInputProtocol = connect?j:-1;
+                    DPRINTF("%s %s zynmidicontroller input\n", aliases[i], connect?"connected to":"disconnected from");
+                    initLaunchkey(j);
+                }
             }
         }
         free(aliases[0]);
@@ -303,11 +345,13 @@ void onJackConnect(jack_port_id_t port_a, jack_port_id_t port_b, int connect, vo
         aliases[0] = (char *) malloc (jack_port_name_size());
         aliases[1] = (char *) malloc (jack_port_name_size());
         int nAliases = jack_port_get_aliases(pDstPort, aliases);
-        for(int i=0; i < nAliases; ++i) {
-            if(strstr(aliases[i], "Launchkey-Mini-MK3-MIDI-2")) {
-                g_bOutputConnected = connect;
-                DPRINTF("zynmidicontroller %s Launchkey Mini Mk3 input control port\n", g_bOutputConnected?"connected to":"disconnected from");
-                initLaunchkey();
+        for(int i = 0; i < nAliases; ++i) {
+            for(int j = 0; j < g_nSupportedQuant; ++j) {
+                if(strstr(aliases[i], g_sSupported[j])) {
+                    g_nOutputProtocol = connect?j:-1;
+                    DPRINTF("zynmidicontroller output %s %s\n", connect?"connected to":"disconnected from", aliases[i]);
+                    initLaunchkey(j);
+                }
             }
         }
         free(aliases[0]);
@@ -315,25 +359,11 @@ void onJackConnect(jack_port_id_t port_a, jack_port_id_t port_b, int connect, vo
     }
 }
 
-void end()
-{
-    DPRINTF("zynmidicontroller exit\n");
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-}
-
 // ** Library management functions **
-
-__attribute__((constructor)) void zynmidicontroller(void) {
-    printf("New instance of zynmidicontroller\n");
-    init();
-}
 
 void init() {
     // Register with Jack server
     printf("**zynmidicontroller initialising**\n");
-    char *sServerName = NULL;
-    jack_status_t nStatus;
-    jack_options_t nOptions = JackNoStartServer;
     
     if(g_pJackClient)
     {
@@ -341,19 +371,17 @@ void init() {
         return; // Already initialised
     }
 
-    if((g_pJackClient = jack_client_open("zynmidicontroller", nOptions, &nStatus, sServerName)) == 0)
+    if((g_pJackClient = jack_client_open("zynmidicontroller", JackNoStartServer, NULL)) == 0)
     {
-        fprintf(stderr, "libzynmidicontroller failed to start jack client: %d\n", nStatus);
+        fprintf(stderr, "libzynmidicontroller failed to start jack client\n");
         return;
     }
-
     // Create input port
     if(!(g_pInputPortDevice = jack_port_register(g_pJackClient, "controller input", JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0)))
     {
         fprintf(stderr, "libzynmidicontroller cannot register device input port\n");
         return;
     }
-
     // Create output port
     if(!(g_pOutputPortDevice = jack_port_register(g_pJackClient, "controller output", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0)))
     {
@@ -378,10 +406,33 @@ void init() {
     }
 
     // Register the cleanup function to be called when program exits
-    atexit(end);
     printf("zynmidicontroller initialisation complete\n");
 }
 
+__attribute__((constructor)) void zynmidicontroller(void) {
+    printf("New instance of zynmidicontroller\n");
+    init();
+}
+
+__attribute__((destructor)) void zynmidicontrollerend(void) {
+    printf("Destroy instance of zynmidicontroller\n");
+    g_bMutex = true;
+    for(auto it = g_vSendQueue.begin(); it != g_vSendQueue.end(); ++it)
+        delete *it;
+    g_vSendQueue.clear();
+    g_bMutex = false;
+//    jack_client_close(g_pJackClient);
+//    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+}
+
+void activate(bool activate) {
+    if(!g_pJackClient)
+        return;
+    if(activate)
+        jack_activate(g_pJackClient);
+    else
+        jack_deactivate(g_pJackClient);
+}
 
 // Public functions
 
@@ -391,23 +442,44 @@ void setMidiChannel(unsigned int channel) {
 }
 
 void selectKnobs(unsigned int bank) {
-    if(isDeviceConnected() && bank < 7) {
-        g_nCCoffset = bank;
-        sendDeviceMidi(0xbf, 9, bank);
-        DPRINTF("Knob bank %d selected\n", bank);
+    switch(g_nProtocol) {
+        case 0:
+            // Novation Launchkey Mini
+            if(isDeviceConnected() && bank < 7) {
+                g_nCCoffset = bank;
+                sendDeviceMidi(0xbf, 9, bank);
+                DPRINTF("\tKnob bank %d selected\n", bank);
+            }
     }
 }
 
 void selectPads(unsigned int mode) {
-    if(isDeviceConnected()) {
-        sendDeviceMidi(0xbf, 3, mode);
-        DPRINTF("Pad mode %d selected\n", mode);
+    switch(g_nProtocol) {
+        case 0:
+            // Novation Launchkey Mini
+            if(isDeviceConnected()) {
+                sendDeviceMidi(0xbf, 3, mode);
+                DPRINTF("\tPad mode %d selected\n", mode);
+            }
     }
 }
 
-void enableSession(bool enable) {
-    if(isDeviceConnected()) {
-        sendDeviceMidi(0x9f, 12, enable?127:0);
-        DPRINTF("Session mode %\n", enable?"enabled":"disabled");
+const char* getSupported(bool reset) {
+    static size_t nIndex = 0;
+    if(reset) {
+        if(g_nProtocol == -1)
+            nIndex = 0;
+        else
+            nIndex = g_nProtocol;
+    } else {
+        if(g_nProtocol != -1) {
+            if(nIndex < g_nProtocol)
+                nIndex = g_nProtocol;
+            else
+                nIndex = g_nSupportedQuant;
+        }
     }
+    if(nIndex >= g_nSupportedQuant)
+        return NULL;
+    return(g_sSupported[nIndex++]);
 }

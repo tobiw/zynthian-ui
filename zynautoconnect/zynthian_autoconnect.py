@@ -34,6 +34,8 @@ from collections import OrderedDict
 # Zynthian specific modules
 from zyncoder import *
 from zyngui import zynthian_gui_config
+from zynlibs.zynmidicontroller import zynmidicontroller
+
 
 #-------------------------------------------------------------------------------
 # Configure logging
@@ -57,6 +59,7 @@ thread = None
 exit_flag = False
 
 last_hw_str = None
+libcontroller = None
 
 #------------------------------------------------------------------------------
 
@@ -103,6 +106,28 @@ def midi_autoconnect(force=False):
 	hw_in=jclient.get_ports(is_input=True, is_physical=True, is_midi=True)
 	if len(hw_in)==0:
 		hw_in=[]
+
+	#Get supported control pad ports...
+	pad_controller_in = None
+	for port in hw_in:
+		for alias in port.aliases:
+			supported = zynmidicontroller.get_supported(True)
+			while supported:
+				if supported in alias:
+					pad_controller_in = port
+					hw_in.remove(port)
+					break
+				supported = zynmidicontroller.get_supported(False)
+	pad_controller_out = None
+	for port in hw_out:
+		for alias in port.aliases:
+			supported = zynmidicontroller.get_supported(True)
+			while supported:
+				if supported in alias:
+					pad_controller_out = port
+					hw_out.remove(port)
+					break
+				supported = zynmidicontroller.get_supported(False)
 
 
 	#Add Aubio MIDI out port ...
@@ -269,6 +294,19 @@ def midi_autoconnect(force=False):
 			jclient.connect(efbp,zmr_in['ctrl_in'])
 	except:
 		pass
+
+	#Connect Launchkey
+	if(pad_controller_in and pad_controller_out):
+		zynmidicontroller.libcontroller.activate(True)
+		try:
+			logging.warning("Connecting Launchkey")
+			jclient.connect("zynmidicontroller:output", zmr_in['main_in'])
+			jclient.connect("zynmidicontroller:controller output", pad_controller_in)
+			jclient.connect(pad_controller_out, "zynmidicontroller:controller input")
+		except:
+			pass
+	else:
+	 	zynmidicontroller.libcontroller.activate(False)
 
 	#logger.debug("Connecting ZynMidiRouter to engines ...")
 

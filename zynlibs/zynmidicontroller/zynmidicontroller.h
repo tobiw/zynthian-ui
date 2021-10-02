@@ -40,10 +40,10 @@ extern "C"
 
 // ** Library management functions **
 
-/** @brief  Initialise library and connect to jackd server
-*   @note   Call init() before any other functions will work
+/** @brief  Activate jack client
+*   @param  active True to activate, false to deactivate
 */
-void init();
+void activate(bool activate);
 
 /** @brief  Enable debug output
 *   @param  bEnable True to enable debug output
@@ -69,6 +69,14 @@ void selectPads(unsigned int mode);
 *   @param  enable True to enable, false to disable
 */
 void enableSession(bool enable);
+
+/** @brief  Get name of next supported MIDI controller
+*   @param  reset True to restart list
+*   @retval char* Null terminated c-string or empty string if at end of list
+*   @note   Will only return one name if there is already a MIDI connection
+*/
+const char* getSupported(bool reset = false);
+
 
 #ifdef __cplusplus
 }
