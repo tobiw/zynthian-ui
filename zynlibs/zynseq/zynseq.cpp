@@ -1438,8 +1438,10 @@ void setPlayMode(uint8_t bank, uint8_t sequence, uint8_t mode)
 {
     Sequence* pSequence = g_seqMan.getSequence(bank, sequence);
     pSequence->setPlayMode(mode);
-    if(bank + sequence)
+    if(bank + sequence) {
         g_bDirty = true;
+        g_seqMan.notifyChange(bank, sequence);
+    }
 }
 
 uint8_t getPlayState(uint8_t bank, uint8_t sequence)

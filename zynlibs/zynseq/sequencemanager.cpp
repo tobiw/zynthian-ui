@@ -206,7 +206,9 @@ size_t SequenceManager::clock(uint32_t nTime, std::map<uint32_t,MIDI_MESSAGE*>* 
         {
             // Change of state
             //printf("Bank %d sequence %d changed state to %d\n", it->first, it->second, pSequence->getPlayState());
+            getMutex();
             m_qStateChange.push(*it);
+            releaseMutex();
 
             uint8_t nTallyChannel = getTriggerChannel();
             uint8_t nTrigger = getTriggerNote(it->first, it->second);
@@ -446,9 +448,13 @@ void SequenceManager::registerNotify(const char* hostname, unsigned int port)
 void SequenceManager::unregisterNotify(const char* hostname, unsigned int port)
 {
     std::string sHostname(hostname);
-    for(auto it = m_vRegisteredClients.begin(); it != m_vRegisteredClients.end(); ++it)
-        if(it->first == sHostname && it->second == port)
-            return; //!@todo Remove from vector
+    for(auto it = m_vRegisteredClients.begin(); it != m_vRegisteredClients.end(); ++it) {
+        if(it->first == sHostname && it->second == port) {
+            getMutex();
+            m_vRegisteredClients.erase(it);
+            releaseMutex();
+        }
+    }
 }
 
 void SequenceManager::notificationThread() {
@@ -456,21 +462,37 @@ void SequenceManager::notificationThread() {
     while(true) {
         if(!m_qStateChange.empty()) {
             for(auto itClient = m_vRegisteredClients.begin(); itClient != m_vRegisteredClients.end(); ++itClient) {
+                getMutex();
                 uint32_t nBank = m_qStateChange.front().first;
                 uint32_t nSeq = m_qStateChange.front().second;
+                releaseMutex();
                 Sequence* pSequence = getSequence(nBank, nSeq);
                 // send tally with values: bank, sequence, state
                 lo::Address osc(itClient->first, itClient->second);
-                osc.send("/sequence/status", "iiii", nBank, nSeq, pSequence->getPlayState(), pSequence->getGroup());
+                osc.send("/sequence/status", "iiii", nBank, nSeq, pSequence->getPlayMode() == DISABLED?0xFFFF:pSequence->getPlayState(), pSequence->getGroup());
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 //printf("Sent OSC for bank %d sequence %d\n", nBank, nSeq);
             }
+            getMutex();
             m_qStateChange.pop();
+            releaseMutex();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
 
 void SequenceManager::notifyChange(uint32_t bank, uint32_t sequence) {
+    getMutex();
     m_qStateChange.push(std::pair<uint32_t,uint32_t>(bank, sequence));
+    releaseMutex();
+}
+
+void SequenceManager::getMutex() {
+    while(m_bMutex)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    m_bMutex = true;
+}
+
+void SequenceManager::releaseMutex() {
+    m_bMutex = false;
 }

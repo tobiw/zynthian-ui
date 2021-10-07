@@ -130,6 +130,11 @@ void stopping(int pad) {
     g_nPadStatus[pad] = 3;
 }
 
+void disabled(int pad) {
+    sendDeviceMidi(0x90, g_nSessionPads[pad], 0);
+    g_nPadStatus[pad] = 0xFFFF;
+}
+
 void selectMode(int mode) {
     sendDeviceMidi(0xbf, 3, mode);
 }
@@ -163,6 +168,9 @@ void onOscStatus(lo_arg **pArgs, int nArgs)
             // Restarting
             starting(nSequence);
             break;
+        case 0xFFFF:
+            // Disabled
+            disabled(nSequence);
     }
 }
 

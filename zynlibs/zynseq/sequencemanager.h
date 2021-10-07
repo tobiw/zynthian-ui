@@ -237,7 +237,9 @@ class SequenceManager
         uint16_t fileRead16(FILE* pFile);
         uint8_t fileRead8(FILE* pFile);
         bool checkBlock(FILE* pFile, uint32_t nActualSize,  uint32_t nExpectedSize);
-        
+        void getMutex();
+        void releaseMutex();
+
         uint8_t m_nTriggerChannel = 15; // MIDI channel to recieve sequence triggers (note-on)
         bool m_bMutex = false; // Mutex for access to queues
 
