@@ -48,6 +48,7 @@ const char* g_sSupported[] = {"Launchkey-Mini-MK3-MIDI-2"};
 size_t g_nSupportedQuant = sizeof(g_sSupported) / sizeof(const char*);
 int g_nDrumPads[] = {40,41,42,43,44,45,46,47,48,49,50,51,36,37,38,39,40,41,42,43,44,45,46,47};
 int g_nSessionPads[] = {96,97,98,99,100,101,102,103,112,113,114,115,116,117,118,119};
+int g_nPadColours[] = {67,35,9,47,105,63,94,126,40,81,8,45,28,95,104,44}; //!@todo Pad colours are specific to LaunchKey Mk3
 int g_nPadColour[] = {67,35,9,51,105,63,94,126,67,35,9,51,105,63,94,126};
 int g_nPadStatus[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 int g_nDrumColour = 79;
@@ -69,6 +70,7 @@ bool g_bMutex = false; // Mutex lock for access to g_vSendQueue
 
 void onOscConfig(lo_arg **pArgs, int nArgs)
 {
+    printf("zynmidicontroller onOscConfig\n");
 }
 
 lo::Address g_oscClient("localhost", "1370");
@@ -138,9 +140,10 @@ void onOscStatus(lo_arg **pArgs, int nArgs)
     int nSequence = pArgs[1]->i;
     int nState = pArgs[2]->i;
     int nGroup = pArgs[3]->i;
-    DPRINTF("OSC Bank %d Sequence %d State %d Group %c\n", nBank, nSequence, nState, 'A'+nGroup);
+    //printf("OSC Bank %d Sequence %d State %d Group %c\n", nBank, nSequence, nState, 'A'+nGroup);
     if(nSequence > 15)
         return; //!@todo Handle pad offsets
+    g_nPadColour[nSequence] = g_nPadColours[nGroup % 16];
     switch(nState) {
         case 0:
             // Stopped
@@ -172,12 +175,13 @@ void enableDevice(bool enable) {
         g_oscServer.add_method("/sequence/status", "iiii", onOscStatus);
         g_oscServer.start();
         g_oscClient.send("/cuia/register", "sis", "localhost", 2001, "/SEQUENCER/STATE");
-        DPRINTF("zynmidicontroller sending OSC (/cuia/register , sis, localhost, 2001, /SEQUENCER/STATE) to CUIA\n");
+        g_oscClient.send("/cuia/register", "sis", "localhost", 2001, "/SEQUENCER/CONFIG");
     } else {
         g_oscServer.del_method("/sequence/config", "iii");
         g_oscServer.del_method("/sequence/status", "iiii");
         g_oscServer.stop();
         g_oscClient.send("/cuia/unregister", "sis", "localhost", 2001, "/SEQUENCER/STATE");
+        g_oscClient.send("/cuia/unregister", "sis", "localhost", 2001, "/SEQUENCER/CONFIG");
     }
 
     switch(g_nProtocol) {

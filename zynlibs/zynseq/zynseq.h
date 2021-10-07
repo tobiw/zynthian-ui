@@ -666,6 +666,11 @@ void updateSequenceInfo();
 */
 void registerStateChange(const char* hostname, unsigned int port);
 
+/** @brief  Trigger notification of sequence state to API clients
+*   @param  bank Index of bank
+*   @param  sequence Index of sequence
+*/
+void notifySequenceState(uint32_t bank, uint32_t sequence);
 
 // ** Bank management functions **
 

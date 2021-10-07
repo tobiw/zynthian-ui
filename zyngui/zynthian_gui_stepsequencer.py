@@ -707,13 +707,13 @@ class zynthian_gui_stepsequencer(zynthian_gui_base.zynthian_gui_base):
 		if bank > 0:
 			if libseq.getSequencesInBank(bank) == 0:
 				libseq.setSequencesInBank(bank, 16)
-				for column in range(4):
-					if column == 3:
-						channel = 9
-					else:
-						channel = column
-					for row in range(4):
-						pad = row + 4 * column
+				for row in range(4):
+					for column in range(4):
+						if column == 3:
+								channel = 9
+						else:
+							channel = column
+						pad = column + 4 * row
 						zynseq.set_sequence_name(bank, pad, "%d" % (libseq.getPatternAt(bank, pad, 0, 0)))
 						libseq.setGroup(bank, pad, channel)
 						libseq.setChannel(bank, pad, 0, channel)

@@ -226,6 +226,8 @@ class SequenceManager
 
         void notificationThread();
 
+        void notifyChange(uint32_t bank, uint32_t sequence);
+
     private:
 
         int fileWrite32(uint32_t value, FILE *pFile);

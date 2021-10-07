@@ -929,7 +929,7 @@ class zynthian_gui:
 			print("zynthian_gui Rx CUIA REGISTER ", hostname, port, node)
 			if node.upper() == "/SEQUENCER/STATE":
 				try:
-					print("...CUIA registering with libseq")
+					print("...CUIA registering sequence state change with libseq")
 					libseq.registerStateChange(bytes(hostname, "utf-8"), port)
 				except Exception as e:
 					print(e)

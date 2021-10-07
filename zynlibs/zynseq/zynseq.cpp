@@ -1549,8 +1549,9 @@ uint8_t getGroup(uint8_t bank, uint8_t sequence)
 void setGroup(uint8_t bank, uint8_t sequence, uint8_t group)
 {
     Sequence* pSequence = g_seqMan.getSequence(bank, sequence);
-    return pSequence->setGroup(group);
     g_bDirty = true;
+    g_seqMan.notifyChange(bank, sequence);
+    return pSequence->setGroup(group);
 }
 
 bool hasSequenceChanged(uint8_t bank, uint8_t sequence)
@@ -1636,16 +1637,19 @@ const char* getSequenceName(uint8_t bank, uint8_t sequence)
 
 bool moveSequence(uint8_t bank, uint8_t sequence, uint8_t position)
 {
+    g_seqMan.notifyChange(bank, sequence);
     return g_seqMan.moveSequence(bank, sequence, position);
 }
 
 void insertSequence(uint8_t bank, uint8_t sequence)
 {
+    //!@todo send notification for other sequences in bank
     g_seqMan.insertSequence(bank, sequence);
 }
 
 void removeSequence(uint8_t bank, uint8_t sequence)
 {
+    //!@todo send notification for other sequences in bank
     g_seqMan.removeSequence(bank, sequence);
 }
 
@@ -1656,9 +1660,14 @@ void updateSequenceInfo()
 
 void registerStateChange(const char* hostname, unsigned int port)
 {
-    printf("zynseq registering notify %s %d\n", hostname, port);
+    printf("zynseq registering notify [%s %d] of state changes\n", hostname, port);
     g_seqMan.registerNotify(hostname, port);
 }
+
+void notifySequenceState(uint32_t bank, uint32_t sequence) {
+    g_seqMan.notifyChange(bank, sequence);
+}
+
 
 // ** Track management **
 

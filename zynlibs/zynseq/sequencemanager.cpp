@@ -470,3 +470,7 @@ void SequenceManager::notificationThread() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
+
+void SequenceManager::notifyChange(uint32_t bank, uint32_t sequence) {
+    m_qStateChange.push(std::pair<uint32_t,uint32_t>(bank, sequence));
+}

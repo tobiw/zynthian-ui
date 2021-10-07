@@ -150,34 +150,38 @@ class zynthian_gui_zynpad():
 			self.do_grid_size()
 
 
-	# Function to actually set quantity of pad
+	# Function to actually set quantity of pads
 	def do_grid_size(self, params=None):
 		# To avoid odd behaviour we stop all sequences from playing before changing grid size (blunt but effective!)
 		bank = self.parent.bank
 		for seq in range(libseq.getSequencesInBank(bank)):
 			libseq.setPlayState(bank, seq, zynthian_gui_stepsequencer.SEQ_STOPPED)
-		channels = []
-		groups = []
-		for column in range(self.columns):
-			channels.append(libseq.getChannel(bank, column * self.columns, 0))
-			groups.append(libseq.getGroup(bank, column * self.columns))
+		channels = [] # Array of MIDI channels used to configure each column of pads
+		groups = [] # Array of sequence groups used to configure each column of pads
 		new_size = self.parent.get_param("Grid size", "value")
+		for column in range(new_size):
+			if column < self.columns:
+				channels.append(libseq.getChannel(bank, column * self.columns, 0))
+				groups.append(libseq.getGroup(bank, column * self.columns))
+			else:
+				channels.append(column)
+				groups.append(column)
 		delta = new_size - self.columns
 		if delta > 0:
 			# Growing grid so add extra sequences
-			for column in range(self.columns):
-				for row in range(self.columns, self.columns + delta):
-					pad = row + column * new_size
+			for row in range(self.columns):
+				for column in range(self.columns, new_size):
+					pad = column + row * new_size
 					libseq.insertSequence(bank, pad)
 					libseq.setChannel(bank, pad, channels[column])
 					libseq.setGroup(bank, pad, groups[column])
 					zynseq.set_sequence_name(bank, pad, "%s"%(pad + 1))
-			for column in range(self.columns, new_size):
-				for row in range(new_size):
-					pad = row + column * new_size
+			for row in range(self.columns, new_size):
+				for column in range(new_size):
+					pad = column + row * new_size
 					libseq.insertSequence(bank, pad)
-					libseq.setChannel(bank, pad, column)
-					libseq.setGroup(bank, pad, column)
+					libseq.setChannel(bank, pad, channels[column])
+					libseq.setGroup(bank, pad, groups[column])
 					zynseq.set_sequence_name(bank, pad, "%s"%(pad + 1))
 		if delta < 0:
 			# Shrinking grid so remove excess sequences
@@ -284,6 +288,9 @@ class zynthian_gui_zynpad():
 	#	bank Index of bank to select
 	def select_bank(self, bank):
 		self.refresh_pending = 1
+		for pad in range(libseq.getSequencesInBank(bank)):
+			libseq.notifySequenceState(bank, pad)
+
 
 	# Function called when sequence set loaded from file
 	def get_trigger_channel(self):
@@ -332,8 +339,8 @@ class zynthian_gui_zynpad():
 
 		# Draw pads
 		for pad in range(self.columns**2):
-			pad_x = int(pad / self.columns) * self.column_width
-			pad_y = pad % self.columns * self.row_height
+			pad_y = int(pad / self.columns) * self.row_height
+			pad_x = pad % self.columns * self.column_width
 			self.grid_canvas.create_rectangle(pad_x, pad_y, pad_x + self.column_width - 2, pad_y + self.row_height - 2,
 				fill='grey', width=0, tags=("pad:%d"%(pad), "gridcell", "trigger_%d"%(pad)))
 			self.grid_canvas.create_text(int(pad_x + self.column_width / 2), int(pad_y + 0.01 * self.row_height),
@@ -393,8 +400,8 @@ class zynthian_gui_zynpad():
 	def update_selection_cursor(self):
 		if self.selected_pad >= libseq.getSequencesInBank(self.parent.bank):
 			self.selected_pad = libseq.getSequencesInBank(self.parent.bank) - 1
-		col = int(self.selected_pad / self.columns)
-		row = self.selected_pad % self.columns
+		row = int(self.selected_pad / self.columns)
+		col = self.selected_pad % self.columns
 		self.grid_canvas.coords(self.selection,
 				1 + col * self.column_width, 1 + row * self.row_height,
 				(1 + col) * self.column_width - self.select_thickness, (1 + row) * self.row_height - self.select_thickness)
