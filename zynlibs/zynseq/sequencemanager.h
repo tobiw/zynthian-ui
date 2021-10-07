@@ -3,6 +3,9 @@
 #include "sequence.h"
 #include "track.h"
 #include <map>
+#include <queue>
+#include <lo/lo.h> //provides OSC interface
+#include <lo/lo_cpp.h> //provides C++ OSC interface
 
 #define DEFAULT_TRACK_COUNT 4
 
@@ -208,6 +211,21 @@ class SequenceManager
         */
        uint32_t getBanks();
 
+        /** @brief  Register for notifications
+        *   @param  const char* hostname
+        *   @param  unsigned int port
+        */
+       void registerNotify(const char* hostname, unsigned int port);
+
+        /** @brief  Unregister for notifications
+        *   @param  const char* hostname
+        *   @param  unsigned int port
+        *   @todo   Not yet implemneted
+        */
+       void unregisterNotify(const char* hostname, unsigned int port);
+
+        void notificationThread();
+
     private:
 
         int fileWrite32(uint32_t value, FILE *pFile);
@@ -217,12 +235,16 @@ class SequenceManager
         uint16_t fileRead16(FILE* pFile);
         uint8_t fileRead8(FILE* pFile);
         bool checkBlock(FILE* pFile, uint32_t nActualSize,  uint32_t nExpectedSize);
-
+        
         uint8_t m_nTriggerChannel = 15; // MIDI channel to recieve sequence triggers (note-on)
+        bool m_bMutex = false; // Mutex for access to queues
 
         // Note: Maps are used for patterns and sequences to allow addition and removal of sequences whilst maintaining consistent access to remaining instances
         std::map<uint32_t, Pattern> m_mPatterns; // Map of patterns indexed by pattern number
-        std::vector<std::pair<uint32_t,uint32_t>> m_vPlayingSequences; //Vector of <bank,sequence> pairs for currently playing seqeunces (used to optimise play control)
+        std::vector<std::pair<uint32_t,uint32_t>> m_vPlayingSequences; // Vector of <bank,sequence> pairs for currently playing seqeunces (used to optimise play control)
+        std::vector<std::pair<std::string,unsigned int>> m_vRegisteredClients; // Vector of <ip,port> of API clients registered for sequence state change notification
+        std::queue<std::pair<uint32_t,uint32_t>> m_qStateChange; // Queue of <bank,sequence> pairs for sequences whose state has changed since last notification
         std::map<uint8_t, uint16_t> m_mTriggers; // Map of bank<<8|sequence indexed by MIDI note triggers
         std::map<uint32_t, std::vector<Sequence*>> m_mBanks; // Map of banks: vectors of pointers to sequences indexed by bank
+
 };

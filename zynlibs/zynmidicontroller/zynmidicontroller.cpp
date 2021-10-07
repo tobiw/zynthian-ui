@@ -67,7 +67,12 @@ std::vector<MIDI_MESSAGE*> g_vSendQueue; // Queue of MIDI events to send
 bool g_bDebug = false; // True to output debug info
 bool g_bMutex = false; // Mutex lock for access to g_vSendQueue
 
-lo::Address g_osc("localhost", "1370");
+void onOscConfig(lo_arg **pArgs, int nArgs)
+{
+}
+
+lo::Address g_oscClient("localhost", "1370");
+lo::ServerThread g_oscServer(2001);
 
 // ** Internal (non-public) functions  (not delcared in header so need to be in correct order in source file) **
 
@@ -127,9 +132,54 @@ void selectMode(int mode) {
     sendDeviceMidi(0xbf, 3, mode);
 }
 
+void onOscStatus(lo_arg **pArgs, int nArgs)
+{
+    int nBank = pArgs[0]->i;
+    int nSequence = pArgs[1]->i;
+    int nState = pArgs[2]->i;
+    int nGroup = pArgs[3]->i;
+    DPRINTF("OSC Bank %d Sequence %d State %d Group %c\n", nBank, nSequence, nState, 'A'+nGroup);
+    if(nSequence > 15)
+        return; //!@todo Handle pad offsets
+    switch(nState) {
+        case 0:
+            // Stopped
+            stopped(nSequence);
+            break;
+        case 1:
+            // Playing
+            playing(nSequence);
+            break;
+        case 2:
+            // Stopping
+            stopping(nSequence);
+            break;
+        case 3:
+            // Starting
+        case 4:
+            // Restarting
+            starting(nSequence);
+            break;
+    }
+}
+
+
 void enableDevice(bool enable) {
     if(!isDeviceConnected())
         return;
+    if(enable) {
+        g_oscServer.add_method("/sequence/config", "iii", onOscConfig);
+        g_oscServer.add_method("/sequence/status", "iiii", onOscStatus);
+        g_oscServer.start();
+        g_oscClient.send("/cuia/register", "sis", "localhost", 2001, "/SEQUENCER/STATE");
+        DPRINTF("zynmidicontroller sending OSC (/cuia/register , sis, localhost, 2001, /SEQUENCER/STATE) to CUIA\n");
+    } else {
+        g_oscServer.del_method("/sequence/config", "iii");
+        g_oscServer.del_method("/sequence/status", "iiii");
+        g_oscServer.stop();
+        g_oscClient.send("/cuia/unregister", "sis", "localhost", 2001, "/SEQUENCER/STATE");
+    }
+
     switch(g_nProtocol) {
         case 0:
             // Novation Launchkey Mini
@@ -186,10 +236,10 @@ inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
                         sendMidi(pOutputBuffer, 0x99, pBuffer[1], pBuffer[2]);
                     } else if(pBuffer[1] > 95 && pBuffer[1] < 104) {
                         // Launch buttons 1-8
-                        g_osc.send("/cuia/TOGGLE_SEQUENCE", "i", pBuffer[1] - 96);
+                        g_oscClient.send("/cuia/TOGGLE_SEQUENCE", "i", pBuffer[1] - 96);
                     } else if(pBuffer[1] > 111 && pBuffer[1] < 120) {
                         // Launch buttons 9-16
-                        g_osc.send("/cuia/TOGGLE_SEQUENCE", "i", pBuffer[1] - 104);
+                        g_oscClient.send("/cuia/TOGGLE_SEQUENCE", "i", pBuffer[1] - 104);
                     }
                     break;
                 case 0x80:
@@ -217,21 +267,21 @@ inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
                             // Up button
                             DPRINTF("Up button %s\n", pBuffer[2]?"pressed":"released");
                            if(pBuffer[2])
-                                g_osc.send("/cuia/BACK_UP");
+                                g_oscClient.send("/cuia/BACK_UP");
                         } else if(pBuffer[1] == 105) {
                             // Down button
                             DPRINTF("Down button %s\n", pBuffer[2]?"pressed":"released");
                            if(pBuffer[2])
-                                g_osc.send("/cuia/BACK_DOWN");
+                                g_oscClient.send("/cuia/BACK_DOWN");
                         } else if(pBuffer[1] == 103) {
                             // Left button
                             DPRINTF("Left button %s\n", pBuffer[2]?"pressed":"released");
                            if(pBuffer[2])
-                                g_osc.send("/cuia/SELECT_UP");
+                                g_oscClient.send("/cuia/SELECT_UP");
                         } else if(pBuffer[1] == 102) {
                             // Right button
                            if(pBuffer[2])
-                                g_osc.send("/cuia/SELECT_DOWN");
+                                g_oscClient.send("/cuia/SELECT_DOWN");
                             DPRINTF("Right button %s\n", pBuffer[2]?"pressed":"released");
                         } else if(pBuffer[1] > 20 && pBuffer[1] < 29) {
                             // CC knobs
@@ -240,12 +290,12 @@ inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
                             // Play button
                             DPRINTF("Shift+Play button %s\n", pBuffer[2]?"pressed":"released");
                            if(pBuffer[2])
-                               g_osc.send("/cuia/TOGGLE_AUDIO_PLAY");
+                               g_oscClient.send("/cuia/TOGGLE_AUDIO_PLAY");
                         } else if(pBuffer[1] == 117) {
                             // Record button
                             DPRINTF("Shift+Record button %s\n", pBuffer[2]?"pressed":"released");
                            if(pBuffer[2])
-                                g_osc.send("/cuia/TOGGLE_AUDIO_RECORD");
+                                g_oscClient.send("/cuia/TOGGLE_AUDIO_RECORD");
                         }
                     } else {
                         // Shift not held
@@ -253,12 +303,12 @@ inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
                             // Launch button
                             DPRINTF("Launch button %s\n", pBuffer[2]?"pressed":"released");
                            if(pBuffer[2])
-                                g_osc.send("/cuia/SWITCH_SELECT_SHORT");
+                                g_oscClient.send("/cuia/SWITCH_SELECT_SHORT");
                         } else if(pBuffer[1] == 105) {
                             // Stop/Solo/Mute button
                             DPRINTF("Stop/Solo/Mute button %s\n", pBuffer[2]?"pressed":"released");
                             if(pBuffer[2])
-                                g_osc.send("/cuia/SWITCH_BACK_SHORT");
+                                g_oscClient.send("/cuia/SWITCH_BACK_SHORT");
                         } else if(pBuffer[1] > 20 && pBuffer[1] < 29) {
                             // CC knobs
                             sendMidi(pOutputBuffer, 0xb0 | g_nMidiChannel, pBuffer[1] + g_nCCoffset, pBuffer[2]);
@@ -266,12 +316,12 @@ inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
                             // Play button
                             DPRINTF("Play button %s\n", pBuffer[2]?"pressed":"released");
                            if(pBuffer[2])
-                                g_osc.send("/cuia/TOGGLE_MIDI_PLAY");
+                                g_oscClient.send("/cuia/TOGGLE_MIDI_PLAY");
                         } else if(pBuffer[1] == 117) {
                             // Record button
                             DPRINTF("Record button %s\n", pBuffer[2]?"pressed":"released");
                            if(pBuffer[2])
-                                g_osc.send("/cuia/TOGGLE_MIDI_RECORD");
+                                g_oscClient.send("/cuia/TOGGLE_MIDI_RECORD");
                         }
                     }
                     break;

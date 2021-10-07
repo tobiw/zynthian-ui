@@ -88,6 +88,9 @@ double g_dFramesToNextClock = 0.0; // Frames until next clock pulse
 double g_dFramesPerClock = 60 * g_nSampleRate / (g_dTempo *  g_dTicksPerBeat) * g_dTicksPerClock; //!@todo Change to integer will have 0.1% jitter at 1920 ppqn and much better jitter (0.01%) at current 24ppqn
 uint8_t g_nClock = 0; // Quantity of MIDI clocks since start of beat
 
+//std::thread g_threadNotify(&SequenceManager::notificationThread, g_seqMan);
+std::thread g_threadNotify(&SequenceManager::notificationThread, &g_seqMan);
+
 // ** Internal (non-public) functions  (not delcared in header so need to be in correct order in source file) **
 
 // Enable / disable debug output
@@ -1649,6 +1652,12 @@ void removeSequence(uint8_t bank, uint8_t sequence)
 void updateSequenceInfo()
 {
     g_seqMan.updateAllSequenceLengths();
+}
+
+void registerStateChange(const char* hostname, unsigned int port)
+{
+    printf("zynseq registering notify %s %d\n", hostname, port);
+    g_seqMan.registerNotify(hostname, port);
 }
 
 // ** Track management **

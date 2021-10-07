@@ -1,5 +1,6 @@
 #include "sequencemanager.h"
 #include <cstring>
+#include <thread>
 
 /** SequenceManager class methods implementation **/
 
@@ -179,7 +180,7 @@ size_t SequenceManager::clock(uint32_t nTime, std::map<uint32_t,MIDI_MESSAGE*>* 
     /** Get events scheduled for next step from all tracks in each playing sequence.
         Populate schedule with start, end and interpolated events
     */
-    for(auto it = m_vPlayingSequences.begin(); it != m_vPlayingSequences.end(); )
+    for(auto it = m_vPlayingSequences.begin(); it != m_vPlayingSequences.end();)
     {
         Sequence* pSequence = getSequence(it->first, it->second);
         if(pSequence->getPlayState() == STOPPED)
@@ -204,6 +205,9 @@ size_t SequenceManager::clock(uint32_t nTime, std::map<uint32_t,MIDI_MESSAGE*>* 
         if(nEventType & 2)
         {
             // Change of state
+            //printf("Bank %d sequence %d changed state to %d\n", it->first, it->second, pSequence->getPlayState());
+            m_qStateChange.push(*it);
+
             uint8_t nTallyChannel = getTriggerChannel();
             uint8_t nTrigger = getTriggerNote(it->first, it->second);
             if(nTallyChannel < 16 && nTrigger < 128)
@@ -427,4 +431,42 @@ void SequenceManager::clearBank(uint32_t bank)
 uint32_t SequenceManager::getBanks()
 {
     return m_mBanks.size();
+}
+
+void SequenceManager::registerNotify(const char* hostname, unsigned int port)
+{
+    std::string sHostname(hostname);
+    for(auto it = m_vRegisteredClients.begin(); it != m_vRegisteredClients.end(); ++it)
+        if(it->first == sHostname && it->second == port)
+            return;
+    m_vRegisteredClients.push_back(std::pair<std::string,unsigned int>(sHostname, port));
+    printf("Sequence Manager registered client %s:%d\n", hostname, port);
+}
+
+void SequenceManager::unregisterNotify(const char* hostname, unsigned int port)
+{
+    std::string sHostname(hostname);
+    for(auto it = m_vRegisteredClients.begin(); it != m_vRegisteredClients.end(); ++it)
+        if(it->first == sHostname && it->second == port)
+            return; //!@todo Remove from vector
+}
+
+void SequenceManager::notificationThread() {
+    printf("Starting sequence manager notification thread\n");
+    while(true) {
+        if(!m_qStateChange.empty()) {
+            for(auto itClient = m_vRegisteredClients.begin(); itClient != m_vRegisteredClients.end(); ++itClient) {
+                uint32_t nBank = m_qStateChange.front().first;
+                uint32_t nSeq = m_qStateChange.front().second;
+                Sequence* pSequence = getSequence(nBank, nSeq);
+                // send tally with values: bank, sequence, state
+                lo::Address osc(itClient->first, itClient->second);
+                osc.send("/sequence/status", "iiii", nBank, nSeq, pSequence->getPlayState(), pSequence->getGroup());
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                //printf("Sent OSC for bank %d sequence %d\n", nBank, nSeq);
+            }
+            m_qStateChange.pop();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 }

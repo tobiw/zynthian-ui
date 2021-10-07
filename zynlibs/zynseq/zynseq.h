@@ -660,6 +660,12 @@ void removeSequence(uint8_t bank, uint8_t sequence);
 */
 void updateSequenceInfo();
 
+/** @brief  Register for sequence state changes
+*   @param  const char* hostname
+*   @param  unsigned int port
+*/
+void registerStateChange(const char* hostname, unsigned int port);
+
 
 // ** Bank management functions **
 

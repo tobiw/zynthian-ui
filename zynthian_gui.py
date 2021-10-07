@@ -918,6 +918,21 @@ class zynthian_gui:
 			except:
 				pass
 
+		elif cuia == "REGISTER":
+    		# Register for CUIA feedback
+			# params[0]: "s" hostname of client
+			# params[1]: "i" UDP port of client
+			# params[2]: "s" node to register, e.g. sequencer/state
+			hostname = params[0]
+			port = params[1]
+			node = params[2]
+			print("zynthian_gui Rx CUIA REGISTER ", hostname, port, node)
+			if node.upper() == "/SEQUENCER/STATE":
+				try:
+					print("...CUIA registering with libseq")
+					libseq.registerStateChange(bytes(hostname, "utf-8"), port)
+				except Exception as e:
+					print(e)
 
 
 	def custom_switch_ui_action(self, i, t):

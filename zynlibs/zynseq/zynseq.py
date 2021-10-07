@@ -118,4 +118,12 @@ def transport_toggle(client):
 		libseq.transportToggle(bytes(client, "utf-8"))
 
 
+#	Register for sequence state change notifications via OSC
+#	hostname: Hostname of target
+#	port: UDP port number of targer
+def register_for_sequence_change(hostname, port):
+    if libseq:
+    	libseq.registerStateChange(bytes(hostname, "utf-8"), port)
+
+
 #-------------------------------------------------------------------------------
