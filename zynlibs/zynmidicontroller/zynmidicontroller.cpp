@@ -45,8 +45,9 @@ unsigned int g_nOutputProtocol = -1; // Value of the protocol used by controller
 unsigned int g_nProtocol = -1; // Index of the protocol to use for device control
 bool g_bShift = false; // True if shift button is pressed
 
-const char* g_sSupported[] = {"Launchkey-Mini-MK3-MIDI-2"};
+const char* g_sSupported[] = {"Launchkey-Mini-MK3-MIDI-2","Launchpad-Mini-MK3-MIDI-2"}; // List of jack aliases supported by library
 size_t g_nSupportedQuant = sizeof(g_sSupported) / sizeof(const char*);
+//!@todo How does Launchpad Mini implement drum pads?
 uint8_t g_nDrumPads[] = {40,41,42,43,44,45,46,47,48,49,50,51,36,37,38,39,40,41,42,43,44,45,46,47}; // MIDI note for each drum pad
 uint8_t g_nLKM3SessionPads[] = {96,97,98,99,100,101,102,103,112,113,114,115,116,117,118,119}; // MIDI note for each session pad
 uint8_t g_nLPM3SessionPads[] = {81,82,83,84,85,86,87,88,
@@ -59,10 +60,10 @@ uint8_t g_nLPM3SessionPads[] = {81,82,83,84,85,86,87,88,
                             11,12,13,14,15,16,17,18}; // MIDI note for each session pad
 uint8_t g_nPadColours[] = {67,35,9,47,105,63,94,126,40,81,8,45,28,95,104,44}; //Novation Mk3 colours closely matching zynpad group colours
 uint8_t g_nPadColour[64]; // Current colour of each pad
-uint8_t g_nDrumColour = 79;
-uint8_t g_nDrumOnColour = 90;
-uint8_t g_nStartingColour = 123;
-uint8_t g_nStoppingColour = 120;
+uint8_t g_nDrumColour = 79; // Colour of drum pads
+uint8_t g_nDrumOnColour = 90; // Colour of drum pads when pressed
+uint8_t g_nStartingColour = 123; // Colour to flash pad when sequence starting
+uint8_t g_nStoppingColour = 120; // Colour to flash pad when sequence stopping
 int g_nCCoffset = 0; // Offset to add to CC controllers (base is 21 for controller 1)
 uint8_t g_nMidiChannel = 0; // MIDI channel to send CC messages
 
@@ -71,6 +72,7 @@ bool g_bDebug = false; // True to output debug info
 bool g_bMutex = false; // Mutex lock for access to g_vSendQueue
 
 // Start OSC API client and server
+//!@todo Temporary implementation until proper API implemented
 lo::Address g_oscClient("localhost", "1370");
 lo::ServerThread g_oscServer(2001);
 
@@ -90,15 +92,27 @@ bool isDeviceConnected() {
     return g_nProtocol != -1;
 }
 
-// Add a MIDI command to queue to be sent to device on next jack cycle
-void sendDeviceMidi(uint8_t status, uint8_t value1, uint8_t value2)
+// Add arbriatary length MIDI message to queue to be sent to device on next jack cycle
+void sendDeviceMidi(const unsigned char data[], size_t size) {
+    if(size < 1 || data[0] < 128)
+        return;
+    MIDI_MESSAGE* pMsg = new MIDI_MESSAGE(data, size);
+    while(g_bMutex)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    g_bMutex = true;
+    g_vSendQueue.push_back(pMsg);
+    g_bMutex = false;
+}
+
+// Add 3 byte MIDI command to queue to be sent to device on next jack cycle
+void sendDeviceMidi3(uint8_t status, uint8_t value1, uint8_t value2)
 {
     if(status < 128 || value1 > 127 && value2 > 127)
         return;
-    MIDI_MESSAGE* pMsg = new MIDI_MESSAGE;
-    pMsg->command = status;
-    pMsg->value1 = value1;
-    pMsg->value2 = value2;
+    MIDI_MESSAGE* pMsg = new MIDI_MESSAGE(3);
+    pMsg->data[0]= status;
+    pMsg->data[1] = value1;
+    pMsg->data[2] = value2;
     while(g_bMutex)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     g_bMutex = true;
@@ -118,22 +132,22 @@ void sendPadStatusToDevice(uint8_t sequence, uint16_t state) {
     switch(state)
     {
         case STOPPED:
-            sendDeviceMidi(0x90, pad, g_nPadColour[sequence]);
+            sendDeviceMidi3(0x90, pad, g_nPadColour[sequence]);
             break;
         case STARTING:
         case RESTARTING:
-            sendDeviceMidi(0x90, pad, g_nPadColour[sequence]);
-            sendDeviceMidi(0x91, pad, g_nStartingColour);
+            sendDeviceMidi3(0x90, pad, g_nPadColour[sequence]);
+            sendDeviceMidi3(0x91, pad, g_nStartingColour);
             break;
         case PLAYING:
-            sendDeviceMidi(0x92, pad, g_nPadColour[sequence]);
+            sendDeviceMidi3(0x92, pad, g_nPadColour[sequence]);
             break;
         case STOPPING:
-            sendDeviceMidi(0x90, pad, g_nPadColour[sequence]);
-            sendDeviceMidi(0x91, pad, g_nStoppingColour);
+            sendDeviceMidi3(0x90, pad, g_nPadColour[sequence]);
+            sendDeviceMidi3(0x91, pad, g_nStoppingColour);
             break;
         case DISABLED:
-            sendDeviceMidi(0x90, pad, 0);
+            sendDeviceMidi3(0x90, pad, 0);
             break;
     }
 }
@@ -141,10 +155,12 @@ void sendPadStatusToDevice(uint8_t sequence, uint16_t state) {
 void selectMode(int mode) {
     switch(g_nProtocol) {
         case DEVICE_LAUNCHKEY_MINI_MK3:
-            sendDeviceMidi(0xbf, 3, mode);
+            sendDeviceMidi3(0xbf, 3, mode);
             break;
         case DEVICE_LAUNCHPAD_MINI_MK3:
-            // Send sysex FF0h 00h 20h 29h 02h 0Dh 10h mode F7h //mode=1 for DAW
+            // Switch to Progammer mode
+            const unsigned char data[] = {0xf0,0x00,0x20,0x29,0x02,0x0d,0x0e,0x01,0xf7};
+            sendDeviceMidi(data, sizeof(data));
             break;
     }
 }
@@ -181,19 +197,23 @@ void enableDevice(bool enable) {
     switch(g_nProtocol) {
         case DEVICE_LAUNCHKEY_MINI_MK3:
             // Novation Launchkey Mini
-            sendDeviceMidi(0x9f, 12, enable?127:0);
+            sendDeviceMidi3(0x9f, 12, enable?127:0);
             DPRINTF("\tSession mode %s\n", enable?"enabled":"disabled");
             if(!enable)
                 return;
             for(uint8_t pad = 0; pad < 16; ++pad)
-                sendDeviceMidi(0x99, g_nDrumPads[pad], g_nDrumColour);
+                sendDeviceMidi3(0x99, g_nDrumPads[pad], g_nDrumColour);
             for(uint8_t pad = 0; pad < 16; ++pad)
                 sendPadStatusToDevice(pad, STOPPED);
             selectKnobs(1); // Select "Volume" for CC knobs (to avoid undefined state)
             break;
         case DEVICE_LAUNCHPAD_MINI_MK3:
-            // Send sysex FF0h 00h 20h 29h 02h 0Dh 10h 01 F7
+        {
+            // Select programmer layout
+            const unsigned char data[] = {0xf0,0x00,0x20,0x29,0x02,0x0d,0x00,0x7f,0xf7};
+            sendDeviceMidi(data, sizeof(data));
             break;
+        }
         default:
             break;
     }
@@ -224,6 +244,7 @@ inline void sendMidi(void* pOutputBuffer, int command, int value1, int value2) {
 
 // Handle received MIDI events based on selected protocol
 inline void protocolHandler(jack_midi_event_t* pEvent, void* pOutputBuffer) {
+    //!@todo Move API notification outside jack process thread
     if(!pEvent || pEvent->size != 3)
         return;
     jack_midi_data_t* pBuffer = pEvent->buffer;
@@ -236,7 +257,7 @@ inline void protocolHandler(jack_midi_event_t* pEvent, void* pOutputBuffer) {
                     //DPRINTF("NOTE ON: Channel %d Note %d Velocity %d\n", channel, pBuffer[1], pBuffer[2]);
                     if(pBuffer[1] > 35 && pBuffer[1] < 52) {
                         // Drum pads
-                        sendDeviceMidi(0x99, pBuffer[1], g_nDrumOnColour);
+                        sendDeviceMidi3(0x99, pBuffer[1], g_nDrumOnColour);
                         sendMidi(pOutputBuffer, 0x99, pBuffer[1], pBuffer[2]);
                     } else if(pBuffer[1] > 95 && pBuffer[1] < 104) {
                         // Launch buttons 1-8
@@ -250,7 +271,7 @@ inline void protocolHandler(jack_midi_event_t* pEvent, void* pOutputBuffer) {
                     //DPRINTF("NOTE OFF: Channel %d Note %d Velocity %d\n", channel, pBuffer[1], pBuffer[2]);
                     if(pBuffer[1] > 35 && pBuffer[1] < 52) {
                         // Drum pads
-                        sendDeviceMidi(0x99, pBuffer[1], g_nDrumColour);
+                        sendDeviceMidi3(0x99, pBuffer[1], g_nDrumColour);
                         sendMidi(pOutputBuffer, 0x89, pBuffer[1], pBuffer[2]);
                     }
                     break;
@@ -379,17 +400,15 @@ int onJackProcess(jack_nframes_t nFrames, void *pArgs)
     g_bMutex = true;
 
     // Process events scheduled to be sent to device MIDI output
-    for(auto it = g_vSendQueue.begin(); it != g_vSendQueue.end(); ++it) {
-        pBuffer = jack_midi_event_reserve(pDeviceOutputBuffer, 0, 3); //!@todo Check if offset 0 is valid
+    for(auto it = g_vSendQueue.begin(); it != g_vSendQueue.end();) {
+        pBuffer = jack_midi_event_reserve(pDeviceOutputBuffer, 0, (*it)->size); //!@todo Check if offset 0 is valid
         if(pBuffer == NULL)
             break; // Exceeded buffer size (or other issue)
-        pBuffer[0] = (*it)->command;
-        pBuffer[1] = (*it)->value1;
-        pBuffer[2] = (*it)->value2;
+        memcpy(pBuffer, (*it)->data, (*it)->size);
         //DPRINTF("Sending MIDI event 0x%2X,%d,%d to device\n", pBuffer[0],pBuffer[1],pBuffer[2]);
         delete(*it);
+        it = g_vSendQueue.erase(it);
     }
-    g_vSendQueue.clear(); //!@todo May clear unsent messages if there was an issue with the buffer
     g_bMutex = false;
     return 0;
 }
@@ -531,7 +550,7 @@ void selectKnobs(unsigned int bank) {
             // Novation Launchkey Mini
             if(isDeviceConnected() && bank < 7) {
                 g_nCCoffset = bank;
-                sendDeviceMidi(0xbf, 9, bank);
+                sendDeviceMidi3(0xbf, 9, bank);
                 DPRINTF("\tKnob bank %d selected\n", bank);
             }
     }
@@ -542,7 +561,7 @@ void selectPads(unsigned int mode) {
         case 0:
             // Novation Launchkey Mini
             if(isDeviceConnected()) {
-                sendDeviceMidi(0xbf, 3, mode);
+                sendDeviceMidi3(0xbf, 3, mode);
                 DPRINTF("\tPad mode %d selected\n", mode);
             }
     }
