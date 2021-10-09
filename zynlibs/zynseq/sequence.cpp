@@ -109,7 +109,7 @@ void Sequence::setPlayMode(uint8_t mode)
 {
     if(mode > LASTPLAYMODE)
         return;
-    m_nMode = mode; 
+    m_nMode = mode;
     if(m_nMode == DISABLED)
         m_nState = STOPPED;
     m_bChanged = true;
@@ -199,11 +199,10 @@ uint8_t Sequence::clock(uint32_t nTime, bool bSync, double dSamplesPerClock)
         m_nPosition = 0;
         m_nLastSyncPos = 0;
     }
-
     m_bStateChanged |= (nState != m_nState);
     if(m_bStateChanged)
     {
-        m_bChanged |= true;
+        m_bChanged = true;
         m_bStateChanged = false;
         return nReturn | 2;
     }

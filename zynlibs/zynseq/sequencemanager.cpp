@@ -183,11 +183,6 @@ size_t SequenceManager::clock(uint32_t nTime, std::map<uint32_t,MIDI_MESSAGE*>* 
     for(auto it = m_vPlayingSequences.begin(); it != m_vPlayingSequences.end();)
     {
         Sequence* pSequence = getSequence(it->first, it->second);
-        if(pSequence->getPlayState() == STOPPED)
-        {
-            it = m_vPlayingSequences.erase(it);
-            continue;
-        }
         uint8_t nEventType = pSequence->clock(nTime, bSync, dSamplesPerClock);
         if(nEventType & 1)
         {
@@ -241,7 +236,10 @@ size_t SequenceManager::clock(uint32_t nTime, std::map<uint32_t,MIDI_MESSAGE*>* 
                 (*pSchedule)[nTime] = pEvent;
             }
         }
-        ++it;
+        if(pSequence->getPlayState() == STOPPED)
+            it = m_vPlayingSequences.erase(it);
+        else
+            ++it;
     }
     return m_vPlayingSequences.size();
 }
@@ -319,7 +317,6 @@ void SequenceManager::stop()
 {
     for(auto it = m_vPlayingSequences.begin(); it != m_vPlayingSequences.end(); ++it)
         getSequence(it->first, it->second)->setPlayState(STOPPED);
-    m_vPlayingSequences.clear();
 }
 
 void SequenceManager::cleanPatterns()

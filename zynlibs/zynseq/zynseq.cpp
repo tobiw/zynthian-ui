@@ -54,7 +54,7 @@ bool g_bPatternModified = false; // True if pattern has changed since last check
 size_t g_nPlayingSequences = 0; // Quantity of playing sequences
 uint32_t g_nXruns = 0;
 bool g_bDirty = false; // True if anything has been modified
-std::set<std::string> g_setTransportClient; // Set of timebase clients having requested transport play 
+std::set<std::string> g_setTransportClient; // Set of timebase clients having requested transport play
 bool g_bClientPlaying = false; // True if any external client has requested transport play
 bool g_bInputEnabled = false; // True to add notes to current pattern from MIDI input
 
@@ -193,7 +193,7 @@ void updateBBT(jack_position_t* position)
     pPosition: Pointer to position structure for the next cycle
     bUpdate: True (non-zero) to request position be updated to position defined in pPosition (also true on first callback)
     pArgs: Pointer to argument supplied by jack_set_timebase_callback (not used here)
-    
+
     [Info]
     If bUpdate is false then calculate BBT from pPosition->frame: quantity of frames from start of song.
     If bUpdate is true then calculate pPostion-frame from BBT info
@@ -315,7 +315,7 @@ int onJackProcess(jack_nframes_t nFrames, void *pArgs)
     static double dBeatsPerBar; // Store so that we can check for change and do less maths
     static jack_nframes_t nFramerate; // Store so that we can check for change and do less maths
     static uint32_t nFramesPerPulse;
-    
+
     // Get output buffer that will be processed in this process cycle
     void* pOutputBuffer = jack_port_get_buffer(g_pOutputPort, nFrames);
     unsigned char* pBuffer;
@@ -457,7 +457,7 @@ int onJackProcess(jack_nframes_t nFrames, void *pArgs)
         }
         g_dFramesToNextClock -= nFrames;
         //g_nTick = g_dTicksPerBeat - nRemainingFrames / getFramesPerTick(g_dTempo);
-        
+
         if(bSync && g_nPlayingSequences == 0)
         {
             //!@todo bSync might have been reset by second clock within period - this should go within g_dFramesToNextClock loop
@@ -551,7 +551,7 @@ void init(char* name) {
     char *sServerName = NULL;
     jack_status_t nStatus;
     jack_options_t nOptions = JackNoStartServer;
-    
+
     if(g_pJackClient)
     {
         fprintf(stderr, "libzynseq already initialised\n");
@@ -577,7 +577,7 @@ void init(char* name) {
         fprintf(stderr, "libzynseq cannot register output port\n");
         return;
     }
-    
+
     g_nSampleRate = jack_get_sample_rate(g_pJackClient);
     g_dFramesPerClock = getFramesPerClock(g_dTempo);
 
@@ -594,7 +594,7 @@ void init(char* name) {
     // Register the cleanup function to be called when program exits
     atexit(end);
 
-    transportRequestTimebase();        
+    transportRequestTimebase();
     transportStop("zynseq");
     transportLocate(0);
     g_pTrack = g_seqMan.getSequence(0, 0)->getTrack(0);
@@ -838,6 +838,9 @@ bool load(const char* filename)
     //printf("Ver: %d Loaded %lu patterns, %lu sequences, %lu banks from file %s\n", nVersion, m_mPatterns.size(), m_mSequences.size(), m_mBanks.size(), filename);
     g_bDirty = false;
     g_pTrack = g_seqMan.getSequence(0, 0)->getTrack(0);
+    //printf("zynseq::load sending notification for %d sequences in bank 1\n", g_seqMan.getSequencesInBank(1));
+    for(uint32_t seq = 0; seq < g_seqMan.getSequencesInBank(1); ++seq)
+        notifySequenceState(1, seq); //!@todo This is too early - API is not established when first load occurs. Maybe trigger snapshot load later or initialise API earlier.
     return true;
 }
 
@@ -903,7 +906,7 @@ void save(const char* filename)
         }
         nPattern = g_seqMan.getNextPattern(nPattern);
     } while(nPattern != -1);
-    
+
     // Iterate through banks
     for(uint32_t nBank = 1; nBank < g_seqMan.getBanks(); ++nBank)
     {
@@ -953,7 +956,7 @@ void save(const char* filename)
                     nPos += fileWrite32(0, pFile);
                     nPos += fileWrite16(0, pFile);
                 }
-                
+
             }
             Timebase* pTimebase = pSequence->getTimebase();
             if(pTimebase)
@@ -971,7 +974,7 @@ void save(const char* filename)
             else
             {
                 nPos += fileWrite32(0, pFile);
-            }            
+            }
         }
         nBlockSize = nPos - nStartOfBlock;
         fseek(pFile, nStartOfBlock - 4, SEEK_SET);
@@ -1155,7 +1158,7 @@ bool isMuted(uint8_t bank, uint8_t sequence, uint32_t track)
 	if(pTrack)
 		return pTrack->isMuted();
 	return false;
-}	
+}
 
 void enableMidiInput(bool enable)
 {
@@ -1662,7 +1665,7 @@ void updateSequenceInfo()
 
 void registerStateChange(const char* hostname, unsigned int port)
 {
-    printf("zynseq registering notify [%s %d] of state changes\n", hostname, port);
+    //printf("zynseq registering notify [%s %d] of state changes\n", hostname, port);
     g_seqMan.registerNotify(hostname, port);
 }
 
@@ -1697,7 +1700,7 @@ uint8_t getChannel(uint8_t bank, uint8_t sequence, uint32_t track)
     Track* pTrack = g_seqMan.getSequence(bank, sequence)->getTrack(track);
     if(!pTrack)
         return 0xFF;
-    return pTrack->getChannel(); 
+    return pTrack->getChannel();
 }
 
 void solo(uint8_t bank, uint8_t sequence, uint32_t track, bool solo)
@@ -1716,7 +1719,7 @@ bool isSolo(uint8_t bank, uint8_t sequence, uint32_t track)
     return pTrack->isSolo();
 }
 
-// ** Transport management **/ 
+// ** Transport management **/
 
 void setTransportToStartOfBar()
 {
@@ -1738,11 +1741,11 @@ void transportLocate(uint32_t frame)
 */
 jack_nframes_t transportGetLocation(uint32_t bar, uint32_t beat, uint32_t tick)
 {
-    // Convert one-based bars and beats to zero-based 
+    // Convert one-based bars and beats to zero-based
     if(bar > 0)
         --bar;
     if(beat > 0)
-        --beat;    
+        --beat;
     uint32_t nTicksToPrev = 0;
     uint32_t nTicksToEvent = 0;
     uint32_t nTicksPerBar = g_dTicksPerBeat * g_nBeatsPerBar;

@@ -29,6 +29,7 @@
 #include <jack/jack.h> //provides JACK interface
 #include <jack/midiport.h> //provides JACK MIDI interface
 #include "zynmidicontroller.h" //exposes library methods as c functions
+#include "constants.h"
 #include <cstring> //provides strstr
 #include <lo/lo.h> //provides OSC interface
 #include <lo/lo_cpp.h> //provides C++ OSC interface
@@ -46,33 +47,30 @@ bool g_bShift = false; // True if shift button is pressed
 
 const char* g_sSupported[] = {"Launchkey-Mini-MK3-MIDI-2"};
 size_t g_nSupportedQuant = sizeof(g_sSupported) / sizeof(const char*);
-int g_nDrumPads[] = {40,41,42,43,44,45,46,47,48,49,50,51,36,37,38,39,40,41,42,43,44,45,46,47};
-int g_nSessionPads[] = {96,97,98,99,100,101,102,103,112,113,114,115,116,117,118,119};
-int g_nPadColours[] = {67,35,9,47,105,63,94,126,40,81,8,45,28,95,104,44}; //!@todo Pad colours are specific to LaunchKey Mk3
-int g_nPadColour[] = {67,35,9,51,105,63,94,126,67,35,9,51,105,63,94,126};
-int g_nPadStatus[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-int g_nDrumColour = 79;
-int g_nDrumOnColour = 90;
-int g_nStartingColour = 123;
-int g_nStoppingColour = 120;
+uint8_t g_nDrumPads[] = {40,41,42,43,44,45,46,47,48,49,50,51,36,37,38,39,40,41,42,43,44,45,46,47}; // MIDI note for each drum pad
+uint8_t g_nLKM3SessionPads[] = {96,97,98,99,100,101,102,103,112,113,114,115,116,117,118,119}; // MIDI note for each session pad
+uint8_t g_nLPM3SessionPads[] = {81,82,83,84,85,86,87,88,
+                            71,72,73,74,75,76,77,78,
+                            61,62,63,64,65,66,67,68,
+                            51,52,53,54,55,56,57,58,
+                            41,42,43,44,45,46,47,48,
+                            31,32,33,34,35,36,37,38,
+                            21,22,23,24,25,26,27,28,
+                            11,12,13,14,15,16,17,18}; // MIDI note for each session pad
+uint8_t g_nPadColours[] = {67,35,9,47,105,63,94,126,40,81,8,45,28,95,104,44}; //Novation Mk3 colours closely matching zynpad group colours
+uint8_t g_nPadColour[64]; // Current colour of each pad
+uint8_t g_nDrumColour = 79;
+uint8_t g_nDrumOnColour = 90;
+uint8_t g_nStartingColour = 123;
+uint8_t g_nStoppingColour = 120;
 int g_nCCoffset = 0; // Offset to add to CC controllers (base is 21 for controller 1)
-int g_nMidiChannel = 0; // MIDI channel to send CC messages
-
-struct MIDI_MESSAGE {
-    uint8_t command = 0;
-    uint8_t value1 = 0;
-    uint8_t value2 = 0;
-};
+uint8_t g_nMidiChannel = 0; // MIDI channel to send CC messages
 
 std::vector<MIDI_MESSAGE*> g_vSendQueue; // Queue of MIDI events to send
 bool g_bDebug = false; // True to output debug info
 bool g_bMutex = false; // Mutex lock for access to g_vSendQueue
 
-void onOscConfig(lo_arg **pArgs, int nArgs)
-{
-    printf("zynmidicontroller onOscConfig\n");
-}
-
+// Start OSC API client and server
 lo::Address g_oscClient("localhost", "1370");
 lo::ServerThread g_oscServer(2001);
 
@@ -92,7 +90,7 @@ bool isDeviceConnected() {
     return g_nProtocol != -1;
 }
 
-// Add a MIDI command to queue to be sent on next jack cycle
+// Add a MIDI command to queue to be sent to device on next jack cycle
 void sendDeviceMidi(uint8_t status, uint8_t value1, uint8_t value2)
 {
     if(status < 128 || value1 > 127 && value2 > 127)
@@ -108,70 +106,62 @@ void sendDeviceMidi(uint8_t status, uint8_t value1, uint8_t value2)
     g_bMutex = false;
 }
 
-void stopped(int pad) {
-    sendDeviceMidi(0x90, g_nSessionPads[pad], g_nPadColour[pad]);
-    g_nPadStatus[pad] = 0;
-}
-
-void starting(int pad) {
-    sendDeviceMidi(0x90, g_nSessionPads[pad], g_nPadColour[pad]);
-    sendDeviceMidi(0x91, g_nSessionPads[pad], g_nStartingColour);
-    g_nPadStatus[pad] = 1;
-}
-
-void playing(int pad) {
-    sendDeviceMidi(0x92, g_nSessionPads[pad], g_nPadColour[pad]);
-    g_nPadStatus[pad] = 2;
-}
-
-void stopping(int pad) {
-    sendDeviceMidi(0x90, g_nSessionPads[pad], g_nPadColour[pad]);
-    sendDeviceMidi(0x91, g_nSessionPads[pad], g_nStoppingColour);
-    g_nPadStatus[pad] = 3;
-}
-
-void disabled(int pad) {
-    sendDeviceMidi(0x90, g_nSessionPads[pad], 0);
-    g_nPadStatus[pad] = 0xFFFF;
+void sendPadStatusToDevice(uint8_t sequence, uint16_t state) {
+    int pad;
+    if(g_nProtocol == DEVICE_LAUNCHKEY_MINI_MK3 && sequence < 16)
+        pad = g_nLKM3SessionPads[sequence];
+    else if(g_nProtocol == DEVICE_LAUNCHPAD_MINI_MK3 && sequence < 64)
+        pad = g_nLPM3SessionPads[sequence];
+    else
+        return;
+    //printf("sendPadStatus seq:%d state:%d pad:%d\n", sequence, state, pad);
+    switch(state)
+    {
+        case STOPPED:
+            sendDeviceMidi(0x90, pad, g_nPadColour[sequence]);
+            break;
+        case STARTING:
+        case RESTARTING:
+            sendDeviceMidi(0x90, pad, g_nPadColour[sequence]);
+            sendDeviceMidi(0x91, pad, g_nStartingColour);
+            break;
+        case PLAYING:
+            sendDeviceMidi(0x92, pad, g_nPadColour[sequence]);
+            break;
+        case STOPPING:
+            sendDeviceMidi(0x90, pad, g_nPadColour[sequence]);
+            sendDeviceMidi(0x91, pad, g_nStoppingColour);
+            break;
+        case DISABLED:
+            sendDeviceMidi(0x90, pad, 0);
+            break;
+    }
 }
 
 void selectMode(int mode) {
-    sendDeviceMidi(0xbf, 3, mode);
+    switch(g_nProtocol) {
+        case DEVICE_LAUNCHKEY_MINI_MK3:
+            sendDeviceMidi(0xbf, 3, mode);
+            break;
+        case DEVICE_LAUNCHPAD_MINI_MK3:
+            // Send sysex FF0h 00h 20h 29h 02h 0Dh 10h mode F7h //mode=1 for DAW
+            break;
+    }
 }
 
 void onOscStatus(lo_arg **pArgs, int nArgs)
 {
-    int nBank = pArgs[0]->i;
-    int nSequence = pArgs[1]->i;
-    int nState = pArgs[2]->i;
-    int nGroup = pArgs[3]->i;
+    if(nArgs < 4)
+        return;
+    uint8_t nBank = pArgs[0]->i;
+    uint8_t nSequence = pArgs[1]->i;
+    uint8_t nState = pArgs[2]->i;
+    uint8_t nGroup = pArgs[3]->i;
     //printf("OSC Bank %d Sequence %d State %d Group %c\n", nBank, nSequence, nState, 'A'+nGroup);
-    if(nSequence > 15)
-        return; //!@todo Handle pad offsets
+    if(nSequence > 63)
+        return;
     g_nPadColour[nSequence] = g_nPadColours[nGroup % 16];
-    switch(nState) {
-        case 0:
-            // Stopped
-            stopped(nSequence);
-            break;
-        case 1:
-            // Playing
-            playing(nSequence);
-            break;
-        case 2:
-            // Stopping
-            stopping(nSequence);
-            break;
-        case 3:
-            // Starting
-        case 4:
-            // Restarting
-            starting(nSequence);
-            break;
-        case 0xFFFF:
-            // Disabled
-            disabled(nSequence);
-    }
+    sendPadStatusToDevice(nSequence, nState);
 }
 
 
@@ -179,31 +169,30 @@ void enableDevice(bool enable) {
     if(!isDeviceConnected())
         return;
     if(enable) {
-        g_oscServer.add_method("/sequence/config", "iii", onOscConfig);
         g_oscServer.add_method("/sequence/status", "iiii", onOscStatus);
         g_oscServer.start();
         g_oscClient.send("/cuia/register", "sis", "localhost", 2001, "/SEQUENCER/STATE");
-        g_oscClient.send("/cuia/register", "sis", "localhost", 2001, "/SEQUENCER/CONFIG");
     } else {
-        g_oscServer.del_method("/sequence/config", "iii");
         g_oscServer.del_method("/sequence/status", "iiii");
         g_oscServer.stop();
         g_oscClient.send("/cuia/unregister", "sis", "localhost", 2001, "/SEQUENCER/STATE");
-        g_oscClient.send("/cuia/unregister", "sis", "localhost", 2001, "/SEQUENCER/CONFIG");
     }
 
     switch(g_nProtocol) {
-        case 0:
+        case DEVICE_LAUNCHKEY_MINI_MK3:
             // Novation Launchkey Mini
             sendDeviceMidi(0x9f, 12, enable?127:0);
             DPRINTF("\tSession mode %s\n", enable?"enabled":"disabled");
             if(!enable)
                 return;
-            for(int pad = 0; pad < 16; ++pad)
+            for(uint8_t pad = 0; pad < 16; ++pad)
                 sendDeviceMidi(0x99, g_nDrumPads[pad], g_nDrumColour);
-            for(int pad = 0; pad < 16; ++pad)
-                stopped(pad);
+            for(uint8_t pad = 0; pad < 16; ++pad)
+                sendPadStatusToDevice(pad, STOPPED);
             selectKnobs(1); // Select "Volume" for CC knobs (to avoid undefined state)
+            break;
+        case DEVICE_LAUNCHPAD_MINI_MK3:
+            // Send sysex FF0h 00h 20h 29h 02h 0Dh 10h 01 F7
             break;
         default:
             break;
@@ -234,7 +223,10 @@ inline void sendMidi(void* pOutputBuffer, int command, int value1, int value2) {
 }
 
 // Handle received MIDI events based on selected protocol
-inline void protocolHandler(jack_midi_data_t* pBuffer, void* pOutputBuffer) {
+inline void protocolHandler(jack_midi_event_t* pEvent, void* pOutputBuffer) {
+    if(!pEvent || pEvent->size != 3)
+        return;
+    jack_midi_data_t* pBuffer = pEvent->buffer;
     int channel = pBuffer[0] & 0x0F + 1;
     switch(g_nProtocol) {
         case 0:
@@ -378,7 +370,7 @@ int onJackProcess(jack_nframes_t nFrames, void *pArgs)
     for(jack_nframes_t i = 0; i < nCount; i++)
     {
         jack_midi_event_get(&midiEvent, pInputBuffer, i);
-        protocolHandler(midiEvent.buffer, pOutputBuffer);
+        protocolHandler(&midiEvent, pOutputBuffer);
     }
 
     // Send MIDI output aligned with first sample of frame resulting in similar latency to audio
@@ -456,7 +448,7 @@ void onJackConnect(jack_port_id_t port_a, jack_port_id_t port_b, int connect, vo
 void init() {
     // Register with Jack server
     printf("**zynmidicontroller initialising**\n");
-    
+
     if(g_pJackClient)
     {
         fprintf(stderr, "libzynmidicontroller already initialised\n");
@@ -480,18 +472,18 @@ void init() {
         fprintf(stderr, "libzynmidicontroller cannot register device output port\n");
         return;
     }
-    
+
     // Create output port
     if(!(g_pOutputPort = jack_port_register(g_pJackClient, "output", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0)))
     {
         fprintf(stderr, "libzynmidicontroller cannot register output port\n");
         return;
     }
-    
+
     // Register JACK callbacks
     jack_set_process_callback(g_pJackClient, onJackProcess, 0);
     jack_set_port_connect_callback(g_pJackClient, onJackConnect, 0);
-    
+
     if(jack_activate(g_pJackClient)) {
         fprintf(stderr, "libzynmidicontroller cannot activate client\n");
         return;
