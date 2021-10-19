@@ -1474,6 +1474,8 @@ void setPlayState(uint8_t bank, uint8_t sequence, uint8_t state)
 
 void togglePlayState(uint8_t bank, uint8_t sequence)
 {
+    if(g_seqMan.getSequence(bank, sequence)->getPlayMode() == DISABLED)
+        return;
     uint8_t nState = g_seqMan.getSequence(bank, sequence)->getPlayState();
     switch(nState)
     {
