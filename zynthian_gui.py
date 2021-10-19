@@ -927,19 +927,16 @@ class zynthian_gui:
 			hostname = params[0]
 			port = params[1]
 			node = params[2].upper()
-			print("zynthian_gui Rx CUIA REGISTER ", hostname, port, node)
 			if node == "/SEQUENCER/STATE":
 				try:
-					print("...CUIA registering sequence state change with libseq")
 					libseq.registerStateChange(bytes(hostname, "utf-8"), port)
 				except Exception as e:
-					print(e)
+					pass
 			elif node == "SMF":
 				try:
-					print("...CUIA registering MIDI recorder state change with libsmf")
 					libsmf.registerNotify(bytes(hostname, "utf-8"), port)
 				except Exception as e:
-					print(e)
+					pass
 
 
 
