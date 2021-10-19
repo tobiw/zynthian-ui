@@ -10,6 +10,9 @@
 #include <jack/jack.h> //provides interface to JACK
 #include <jack/midiport.h> //provides interface to JACK MIDI ports
 #include <map> //provides std::map
+#include <vector> //provides std::vector
+#include <lo/lo.h> //provides OSC interface
+#include <lo/lo_cpp.h> //provides C++ OSC interface
 
 #define DPRINTF(fmt, args...) if(g_bDebug) printf(fmt, ## args)
 
@@ -36,6 +39,7 @@ double g_dRecorderTicksPerFrame; // Current tempo
 double g_dPosition = 0.0; // Position within song in ticks
 uint32_t g_nRecordStartPosition = 0; // Jack frame location when recording started
 std::map<uint16_t,uint8_t> m_mHangingMidi; // Map of played (not released) notes indexed by 16-bit word (MIDI channel << 8) | note value
+std::vector<std::pair<std::string,unsigned int>> g_vRegisteredClients; // Vector of <ip,port> of API clients registered for state change notification
 
 Smf* g_pPlayerSmf = NULL; // Pointer to the SMF object that is attached to player
 Smf* g_pRecorderSmf = NULL; // Pointer to the SMF object that is attached to recorder
@@ -403,7 +407,7 @@ static int onJackProcess(jack_nframes_t nFrames, void *notused)
 						if(!pBuffer)
 							break;
 						uint8_t nStatus = it->first >> 8;
-						uint8_t nValue1 = it->first & 0x00FF;
+						uint8_t nValue1 = it->first & 0x00FF6;
 						*pBuffer = nStatus;
 						*(pBuffer + 1) = nValue1;
 						*(pBuffer + 2) = 0;
@@ -411,6 +415,11 @@ static int onJackProcess(jack_nframes_t nFrames, void *notused)
 				}
 				m_mHangingMidi.clear();
 			}
+			for(auto it = g_vRegisteredClients.begin(); it != g_vRegisteredClients.end(); ++it) {
+			//!@todo Check whether sending API messages from within jack thread is acceptable
+                lo::Address oscClient((*it).first.c_str(), (*it).second);
+                oscClient.send("smf", "i", (g_nPlayState == PLAYING) | (g_bRecording << 1));
+            }
 		}
 		if(g_nPlayState == STARTING and nTransportState == JackTransportRolling)
 			g_nPlayState = PLAYING;
@@ -426,7 +435,7 @@ static int onJackProcess(jack_nframes_t nFrames, void *notused)
 				if(pEvent->getTime() > g_dPosition)
 					break;
 				pEvent = g_pPlayerSmf->getEvent(true);
-				
+
 				if(pEvent->getType() == EVENT_TYPE_META)
 				{
 					if(pEvent->getSubtype() == META_TYPE_TEMPO)
@@ -455,7 +464,7 @@ static int onJackProcess(jack_nframes_t nFrames, void *notused)
 						case MIDI_PITCH_BEND:
 							m_mHangingMidi[pEvent->getSubtype() << 8 | *(pEvent->getData())] = *(pEvent->getData() + 1); //key= 0xSSNN SS=status, NN=note/controller. Value is MIDI value
 					}
-					
+
 				}
 			}
 			if(!g_pPlayerSmf->getEvent(false))
@@ -649,4 +658,25 @@ bool isTrackMuted(Smf* pSmf, size_t nTrack)
 	if(!isSmfValid(pSmf))
 		return false;
 	return pSmf->isTrackMuted(nTrack);
+}
+
+void registerNotify(const char* hostname, unsigned int port)
+{
+    std::string sHostname(hostname);
+    for(auto it = g_vRegisteredClients.begin(); it != g_vRegisteredClients.end(); ++it)
+        if(it->first == sHostname && it->second == port)
+            return;
+    g_vRegisteredClients.push_back(std::pair<std::string,unsigned int>(sHostname, port));
+    printf("SMF registered client %s:%d\n", hostname, port);
+}
+
+void unregisterNotify(const char* hostname, unsigned int port)
+{
+    std::string sHostname(hostname);
+    for(auto it = g_vRegisteredClients.begin(); it != g_vRegisteredClients.end(); ++it)
+        if(it->first == sHostname && it->second == port)
+        {
+            g_vRegisteredClients.erase(it);
+            return;
+        }
 }

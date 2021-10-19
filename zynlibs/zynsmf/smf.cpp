@@ -162,8 +162,8 @@ bool Smf::load(char* sFilename)
 		return false;
 	}
 	char sHeader[4];
-	
-	
+
+
 	// Iterate each block within IFF file
 	while(fread(sHeader, 4, 1, pFile) == 1)
 	{

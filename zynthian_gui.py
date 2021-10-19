@@ -85,6 +85,7 @@ from zyngui.zynthian_gui_touchscreen_calibration import zynthian_gui_touchscreen
 if "autoeq" in zynthian_gui_config.experimental_features:
 	from zyngui.zynthian_gui_autoeq import zynthian_gui_autoeq
 from zynlibs.zynseq.zynseq import libseq
+from zynlibs.zynsmf.zynsmf import libsmf
 
 #-------------------------------------------------------------------------------
 # Zynthian Main GUI Class
@@ -155,7 +156,7 @@ class zynthian_gui:
 		"94": "MODAL_ALSA_MIXER",
 		"95": "MODAL_STEPSEQ",
 		"96": "MODAL_ADMIN",
-	
+
 		"100": "LAYER_CONTROL"
 	}
 
@@ -659,7 +660,7 @@ class zynthian_gui:
 				return
 			curlayer_chan = self.curlayer.get_midi_chan()
 			if curlayer_chan is not None and zynthian_gui_config.midi_single_active_channel:
-				active_chan = curlayer_chan 
+				active_chan = curlayer_chan
 				cur_active_chan = lib_zyncoder.get_midi_active_chan()
 				if cur_active_chan==active_chan:
 					return
@@ -690,7 +691,7 @@ class zynthian_gui:
 
 	def callable_ui_action(self, cuia, params=None):
 		logging.debug("CUIA '{}' => {}".format(cuia,params))
-		
+
 		if cuia == "POWER_OFF":
 			self.screens['admin'].power_off_confirmed()
 
@@ -925,14 +926,21 @@ class zynthian_gui:
 			# params[2]: "s" node to register, e.g. sequencer/state
 			hostname = params[0]
 			port = params[1]
-			node = params[2]
+			node = params[2].upper()
 			print("zynthian_gui Rx CUIA REGISTER ", hostname, port, node)
-			if node.upper() == "/SEQUENCER/STATE":
+			if node == "/SEQUENCER/STATE":
 				try:
 					print("...CUIA registering sequence state change with libseq")
 					libseq.registerStateChange(bytes(hostname, "utf-8"), port)
 				except Exception as e:
 					print(e)
+			elif node == "SMF":
+				try:
+					print("...CUIA registering MIDI recorder state change with libsmf")
+					libsmf.registerNotify(bytes(hostname, "utf-8"), port)
+				except Exception as e:
+					print(e)
+
 
 
 	def custom_switch_ui_action(self, i, t):
@@ -1180,7 +1188,7 @@ class zynthian_gui:
 				# Back to screen-1 by default ...
 				if screen_back is None:
 					j = self.screens_sequence.index(self.active_screen)-1
-					if j<0: 
+					if j<0:
 						if len(self.screens['layer'].layers)>0 and self.curlayer:
 							j = len(self.screens_sequence)-1
 						else:
@@ -1333,7 +1341,7 @@ class zynthian_gui:
 					self.screens["control"].zyncoder_read(free_zyncoders)
 
 				self.lock.release()
-				
+
 				#Zynswitches
 				self.zynswitch_defered_exec()
 				self.zynswitches()
@@ -1444,7 +1452,7 @@ class zynthian_gui:
 				elif evtype==0xC:
 					pgm = (ev & 0x7F00)>>8
 					logging.info("MIDI PROGRAM CHANGE: CH{} => {}".format(chan,pgm))
-	
+
 					# SubSnapShot (ZS3) MIDI learn ...
 					if self.midi_learn_mode and self.modal_screen=='zs3_learn':
 						if self.screens['layer'].save_midi_chan_zs3(chan, pgm):
@@ -1672,7 +1680,7 @@ class zynthian_gui:
 
 
 	#------------------------------------------------------------------
-	# Engine OSC callbacks => No concurrency!! 
+	# Engine OSC callbacks => No concurrency!!
 	#------------------------------------------------------------------
 
 
@@ -1728,7 +1736,7 @@ class zynthian_gui:
 	#------------------------------------------------------------------
 
 	def init_mpe_zones(self, lower_n_chans, upper_n_chans):
-		# Configure Lower Zone 
+		# Configure Lower Zone
 		if not isinstance(lower_n_chans, int) or lower_n_chans<0 or lower_n_chans>0xF:
 			logging.error("Can't initialize MPE Lower Zone. Incorrect num of channels ({})".format(lower_n_chans))
 		else:
@@ -1737,7 +1745,7 @@ class zynthian_gui:
 			lib_zyncoder.ctrlfb_send_ccontrol_change(0x0, 0x65, 0x0)
 			lib_zyncoder.ctrlfb_send_ccontrol_change(0x0, 0x06, lower_n_chans)
 
-		# Configure Upper Zone 
+		# Configure Upper Zone
 		if not isinstance(upper_n_chans, int) or upper_n_chans<0 or upper_n_chans>0xF:
 			logging.error("Can't initialize MPE Upper Zone. Incorrect num of channels ({})".format(upper_n_chans))
 		else:

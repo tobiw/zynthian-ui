@@ -66,6 +66,7 @@ uint8_t g_nStartingColour = 123; // Colour to flash pad when sequence starting
 uint8_t g_nStoppingColour = 120; // Colour to flash pad when sequence stopping
 int g_nCCoffset = 0; // Offset to add to CC controllers (base is 21 for controller 1)
 uint8_t g_nMidiChannel = 0; // MIDI channel to send CC messages
+uint8_t g_nPlayState = 0; // Bitwise play state: b0:MIDI Player, b1: MIDI Recorder, b2: Audio Player, b3: Audio Recorder
 
 std::vector<MIDI_MESSAGE*> g_vSendQueue; // Queue of MIDI events to send
 bool g_bDebug = false; // True to output debug info
@@ -180,18 +181,58 @@ void onOscStatus(lo_arg **pArgs, int nArgs)
     sendPadStatusToDevice(nSequence, nState);
 }
 
+void onOscSmf(lo_arg **pArgs, int nArgs)
+{
+    /*  Single 8-bit integer argument is bitwise flag:
+        b0: MIDI player
+        b1: MIDI Recorder
+    */
+    if(nArgs != 1)
+        return;
+
+    g_nPlayState = pArgs[0]->i;
+    printf("zynmidicontroller received SMF status: %u\n", nStatus);
+    switch(nStatus) {
+        case 0:
+            // All stopped
+            sendDeviceMidi3(0xb0, 115, 0);
+            sendDeviceMidi3(0xb0, 117, 0);
+            break;
+        case 1:
+            // MIDI playing
+            sendDeviceMidi3(0xb1, 115, 127);
+            sendDeviceMidi3(0xb1, 117, 0);
+            break;
+        case 2:
+            // MIDI recording
+            sendDeviceMidi3(0xb0, 115, 0);
+            sendDeviceMidi3(0xb0, 117, 127);
+            break;
+        case 3:
+            // MIDI playing and recording
+            sendDeviceMidi3(0xb2, 115, 127);
+            sendDeviceMidi3(0xb2, 117, 127);
+            break;
+        //!@todo Calculate state of audio/midi play/rec and send appropriate solid/pulse/flash
+    }
+}
+
 
 void enableDevice(bool enable) {
     if(!isDeviceConnected())
         return;
     if(enable) {
         g_oscServer.add_method("/sequence/status", "iiii", onOscStatus);
+        g_oscServer.add_method("smf", "i", onOscSmf);
         g_oscServer.start();
         g_oscClient.send("/cuia/register", "sis", "localhost", 2001, "/SEQUENCER/STATE");
+        g_oscClient.send("/cuia/register", "sis", "localhost", 2001, "SMF");
     } else {
         g_oscServer.del_method("/sequence/status", "iiii");
+        g_oscServer.del_method("smf", "i");
         g_oscServer.stop();
         g_oscClient.send("/cuia/unregister", "sis", "localhost", 2001, "/SEQUENCER/STATE");
+        g_oscClient.send("/cuia/unregister", "sis", "localhost", 2001, "SMF");
     }
 
     switch(g_nProtocol) {

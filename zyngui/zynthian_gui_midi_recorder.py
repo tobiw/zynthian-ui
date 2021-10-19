@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 #******************************************************************************
 # ZYNTHIAN PROJECT: Zynthian GUI
-# 
+#
 # Zynthian GUI MIDI Recorder Class
-# 
+#
 # Copyright (C) 2015-2018 Fernando Moyano <jofemodo@zynthian.org>
 #
 #******************************************************************************
-# 
+#
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License as
 # published by the Free Software Foundation; either version 2 of
@@ -20,7 +20,7 @@
 # GNU General Public License for more details.
 #
 # For a full copy of the GNU General Public License see the LICENSE.txt file.
-# 
+#
 #******************************************************************************
 
 import os
@@ -39,14 +39,14 @@ from zyngui.zynthian_gui_controller import zynthian_gui_controller
 from zynlibs.zynseq import zynseq
 from zynlibs.zynseq.zynseq import libseq
 from zynlibs.zynsmf import zynsmf # Python wrapper for zynsmf (ensures initialised and wraps load() function)
-from zynlibs.zynsmf.zynsmf import libsmf # Direct access to shared library 
+from zynlibs.zynsmf.zynsmf import libsmf # Direct access to shared library
 
 #------------------------------------------------------------------------------
 # Zynthian MIDI Recorder GUI Class
 #------------------------------------------------------------------------------
 
 class zynthian_gui_midi_recorder(zynthian_gui_selector):
-	
+
 	sys_dir = os.environ.get('ZYNTHIAN_SYS_DIR',"/zynthian/zynthian-sys")
 
 	jack_record_port = "ZynMidiRouter:main_out"
@@ -180,7 +180,7 @@ class zynthian_gui_midi_recorder(zynthian_gui_selector):
 			except Exception as e:
 				res[fname]['length'] = 0
 				logging.warning(e)
-		
+
 		libsmf.removeSmf(smf)
 
 		return res
@@ -292,7 +292,7 @@ class zynthian_gui_midi_recorder(zynthian_gui_selector):
 
 		if fpath is None:
 			fpath = self.get_current_track_fpath()
-		
+
 		if fpath is None:
 			logging.info("No track to play!")
 			return

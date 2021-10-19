@@ -1,6 +1,6 @@
 /*  Standard MIDI File library for Zynthian
 *   Manages multiple SMF
-*   
+*
 */
 //!@todo Add license
 
@@ -58,6 +58,7 @@ void unload(Smf* pSmf);
 /** @brief  Get duration of longest track
 *   @param  pSmf Pointer to the SMF
 *   @retval double Duration in seconds
+*   @note   Duration only updated when SMF loaded from file
 */
 double getDuration(Smf* pSmf);
 
@@ -237,6 +238,19 @@ void muteTrack(Smf* pSmf, size_t nTrack, bool bMute);
 *   @retval bool True if track is muted
 */
 bool isTrackMuted(Smf* pSmf, size_t nTrack);
+
+
+/** @brief  Register for notification of state changes
+*   @param  const char* hostname
+*   @param  unsigned int port
+*/
+void registerNotify(const char* hostname, unsigned int port);
+
+/** @brief  Unregister for notification of state changes
+*   @param  const char* hostname
+*   @param  unsigned int port
+*/
+void unregisterNotify(const char* hostname, unsigned int port);
 
 #ifdef __cplusplus
 }

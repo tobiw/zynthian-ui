@@ -439,7 +439,7 @@ void SequenceManager::registerNotify(const char* hostname, unsigned int port)
         if(it->first == sHostname && it->second == port)
             return;
     m_vRegisteredClients.push_back(std::pair<std::string,unsigned int>(sHostname, port));
-    printf("Sequence Manager registered client %s:%d\n", hostname, port);
+    // printf("Sequence Manager registered client %s:%d\n", hostname, port);
 }
 
 void SequenceManager::unregisterNotify(const char* hostname, unsigned int port)
