@@ -230,7 +230,16 @@ void removeEngine(uint32_t engine);
 *   @note   Use special classes JOIN_INPUT, JOIN_OUTPUT, JOIN_BOTH to connect input / output of horizontally adjacent slots to vertically adjacent slots
 *   @note   JOIN classes give hints to autorouter which may be overriden by direct audio/MIDI routing of individual signals
 */
-uint32_t addEngine(int chain, int row, int column, string class);
+uint32_t addEngine(uint16_t chain, uint8_t row, uint8_t column, string class);
+
+/** @brief  Moves an engine to a new position in a chain
+*   @param  engine Id of engine
+*   @param  chain New chain id
+*   @param  row New row position
+*   @param  column New column
+*/
+void moveEngine(uint16_t chain, uint8_t row, uint8_t column);
+
 
 /*  Engines
     Engines are instances of Engine Classes
@@ -245,47 +254,455 @@ uint32_t addEngine(int chain, int row, int column, string class);
 */
 string getEngineClass(int chain, int row, int column);
 
+/** @brief  Get MIDI channel for control assigned to engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of paramter
+*   @retval uint8_t MIDI channel
+*   @todo   Do we allow multiple controls assigned to single parameter? If so we need to index them.
+*/
+uint16_t getEngineParameterMidiChannel(int engine, string parameter); 
+
 /** @brief  Get MIDI control assigned to engine parameter
 *   @param  engine Id of engine
 *   @param  parameter Name of paramter
-*   @retval uint16_t MSB:MIDI channel, LSB: MIDI CC
+*   @retval uint8_t MIDI CC
+*   @todo   Do we allow multiple controls assigned to single parameter? If so we need to index them.
 */
-uint16_t getEngineMidiControl(int engine, string parameter); 
+uint16_t getEngineParameterMidiControl(int engine, string parameter); 
 
 /** @brief  Assigns a MIDI CC to control an engine parameter
 *   @param  engine Id of engine
 *   @param  parameter Name of parameter
 *   @param  uint8_t channel MIDI channel
 *   @param  uint8_t cc MIDI continuous controller
+*   @todo   May wish to add more complex filtering, scaling, offset, etc.
 */
-void addEngineMidiControl(uint32_t engine, string parameter, int channel, int cc);
+void addEngineParameterMidiControl(uint32_t engine, string parameter, int channel, int cc);
 
 /** @brief  Unassigns a MIDI CC from controlling an engine parameter
 *   @param  engine Id of engine
 *   @param  parameter Name of parameter ("ALL" to remove all parameters)
 *   @param  channel MIDI channel [0..15, 0xFF for all channels]
 *   @param  cc MIDI continuous controller [0..127, 0xFF for all controllers]
-/
-void removeEngineMidiControl(uint32_t engine, string parameter, int channel, int cc); 
+*/
+void removeEngineMidiControl(uint32_t engine, string parameter, int channel, int cc);
 
+/** @brief  Get the index of an engine's currently loaded preset
+*   @param  engine Id of engine
+*   @retval int Preset index or -1 if no preset loaded
+*   @todo   If we allow only one control assigned to each parameter we don't need to pass MIDI parameters here
+*/
 int getEnginePreset(uint32_t engine);
-int getEngineBank(uint32_t engine);
-void setEnginePreset(uint32_t engine, int bank, int preset);
-bool isEngineModified(uint32_t engine);
-template getEngineParameterValue(uint32_t engine, string parameter); //Return type depends on parameter type - do we implement getter for each data type, converting value as well as we can?
-void setEngineParamterValue(uint32_t engine, string parameter, template value); //Value type depends on parameter - do we implement setter for each data type?
-int getEngineChain(int engine); //This is only required if we have a reference for each engine rather than access via chain,row,columm.
 
-// Engine Classes
-int getEngineClassCount();
-string getEngineClass(int index); //Allows iteration to detect class names which are used to index classes
-string getEngineClassType(string class); //Audio effect / MIDI effect / Audio generator / etc. Sould this be an enumeration integer?
-int getEngineClassInputCount(string class);
-int getEngineClassOutputCount(string class);
-int getEngineClassBankCount(string class);
-string getEngineClassBankName(string class, int bank);
-void setEngineClassBankName(string class, int bank, string name);
+/** @brief  Get the index of the bank of an engine's currently loaded preset
+*   @param  engine Id of engine
+*   @retval int Bank index or -1 if no preset loaded or engine does not support banks
+*/
+int getEngineBank(uint32_t engine);
+
+/** @brief  Request an engine loads / selects a preset
+*   @param  engine Id of engine
+*   @param  bank Index of bank (ignored if bank not supported or required)
+*   @param  preset Index of preset
+*/
+void selectEnginePreset(uint32_t engine, int bank, int preset);
+
+/** @brief  Add currently selected preset to engine class
+*   @param  engine Id of engine containing current configuration
+*   @param  bank Index of bank (ignored if class does not support banks)
+*   @param  preset Index of preset (replaces existing preset)
+*   @param  name Name of new preset
+*   @note   The parameters and configuration of selected engine are used
+*/
+void storeEnginePreset(uint32_t engine, uint32_t bank, uint32_t preset, string name);
+
+/** @brief  Check if engine parameters differ from currently loaded preset
+*   @brief  engine Id of engine
+*   @retval bool True if preset modified
+*/
+bool isEngineModified(uint32_t engine);
+
+/** @brief  Get an engine parameter value
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @retval float Parameter value (zero if conversion from naitive data type fails)
+*/
+float getEngineParameterAsFloat(uint32_t engine, string parameter);
+
+/** @brief  Set an engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @param  value Value of parameter
+*   @note   No change if conversion to naitive data type fails
+*/
+void setEngineParameterAsFloat(uint32_t engine, string parameter, float value);
+
+/** @brief  Get an engine parameter value
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @retval int Parameter value (zero if conversion from naitive data type fails)
+*/
+int getEngineParameterAsInt(uint32_t engine, string parameter);
+
+/** @brief  Set an engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @param  value Value of parameter
+*   @note   No change if conversion to naitive data type fails
+*/
+void setEngineParameterAsInt(uint32_t engine, string parameter, int value);
+
+/** @brief  Get an engine parameter value
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @retval string Parameter value (empty string if conversion from naitive data type fails)
+*/
+string getEngineParameterAsString(uint32_t engine, string parameter);
+
+/** @brief  Set an engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @param  value Value of parameter
+*   @note   No change if conversion to naitive data type fails
+*/
+void setEngineParameterAsString(uint32_t engine, string parameter, string value);
+
+/** @brief  Get the chain an engine belongs to
+*   @param  engine Id of engine
+*   @retval uint16_t Id of chain or 0xFFFF for invalid engine id
+*/
+uint16_t getEngineChain(int engine);
+
+/** @brief  Get chain row an engine is positioned
+*   @param  engine Id of engine
+*   @retval uint8_t Row or 0xFF for invalid engine id
+*/
+uint8_t getEngineRow(int engine);
+
+/** @brief  Get chain column an engine is positioned
+*   @param  engine Id of engine
+*   @retval uint8_t Column or 0xFF for invalid engine id
+*/
+uint8_t getEngineColumn(int engine);
+
+/*  Engine Classes
+    Classes or types of different engines
+    May be audio or MIDI (or other control signal) generators
+    May be audio or MIDI (or other control signal) effects or processors
+*/
+
+/** @brief  Get quantity of engine classes
+*   @retval uint32_t Quantity of supported engine classes
+*/
+uint32_t getEngineClassCount();
+
+/** @brief  Get name of engine class
+*   @param  index Index of engine class
+*   @retval string Name of engine class
+*   @note   Allows iteration to detect class names
+*/
+string getEngineClass(int index);
+
+/** @brief  Get engine class type
+*   @param  class Name of engine class
+*   @retval string Engine class type [Audio effect | MIDI effect | Audio generator | etc. Should this be an enumeration integer?]
+*/
+string getEngineClassType(string class); 
+
+/** @brief  Get quantity of signal inputs of an engine class
+*   @param  class Name of engine class
+*   @retval uint8_t Quantity of signal inputs
+*/
+uint8_t getEngineClassInputCount(string class);
+
+/** @brief  Get quantity of signal outputs of an engine class
+*   @param  class Name of engine class
+*   @retval uint8_t Quantity of signal outputs
+*/
+uint8_t getEngineClassOutputCount(string class);
+
+/** @brief  Get quantity of banks available to an engine class
+*   @param  class Name of engine class
+*   @retval uint32_t Quantity of banks
+*/
+uint32_t getEngineClassBankCount(string class);
+
+/** @brief  Get name of an engine class bank
+*   @param  class Name of engine class
+*   @param  bank Index of bank
+*   @retval string Name of bank
+*/
+string getEngineClassBankName(string class, uint32_t bank);
+
+/** @brief  Set name of an engine class bank
+*   @param  class Name of engine class
+*   @param  bank Index of bank
+*   @param  name New name for bank
+*   @todo   Should it be permissible to rename banks? Could this break engines / snapshots?
+*/
+void setEngineClassBankName(string class, uint32_t bank, string name);
+
+/** @brief  Add a bank to an engine class
+*   @param  class Name of engine class
+*   @param  name Name of new bank
+*/
 void addEngineClassBank(string class, string name);
+
+/** @brief  Remove a bank from an engine class
+*   @param  class Name of engine class
+*   @param  name Name of bank to remove
+*   @note   Presets within bank are destroyed
+*/
 void removeEngineClassBank(string class, string name);
-int getEngineClassPresetCount(string class, int bank);
-string getEngineClassPresetName(string class, int bank, int preset);
+
+/** @brief  Get quantity of presets within an engine class bank
+*   @param  class Name of engine class
+*   @param  bank Index of bank
+*   @retval uint32_t Quantity of presets
+*   @todo   Should we use bank name to identify bank?
+*/
+uint32_t getEngineClassPresetCount(string class, uint32_t bank);
+
+/** @brief  Get name of an engine class preset
+*   @param  class Name of engine class
+*   @param  bank Index of bank (ignored if class does not support banks)
+*   @param  preset Index of preset
+*   @retval string Name of class or empty string if preset does not exist
+*   @todo   Should we use bank name to identify bank?
+*/
+string getEngineClassPresetName(string class, uint32_t bank, uint32_t preset);
+
+/** @brief  Removes preset from engine class
+*   @param  class Name of engine class
+*   @param  bank Index of bank (ignored if class does not support banks)
+*   @param  preset Index of preset (replaces existing preset)
+*/
+void removeEngineClassPreset(string class, uint32_t bank, uint32_t preset);
+
+/** @brief  Get quantity of favourite presets within an engine class bank
+*   @param  class Name of engine class (may be empty to select all classes)
+*   @retval uint32_t Quantity of presets
+*/
+uint32_t getFavouritePresetCount(string class, uint32_t bank);
+
+/** @brief  Add preset to favourites
+*   @param  class Name of engine class
+*   @param  bank Index of bank (ignored if class does not support banks)
+*   @param  preset Index of preset
+*/
+void addFavouritePreset(string class, uint32_t bank, uint32_t preset);
+
+/** @brief  Remove preset from favourites
+*   @param  class Name of engine class
+*   @param  bank Index of bank (ignored if class does not support banks)
+*   @param  preset Index of preset
+*/
+void removeFavouritePreset(string class, uint32_t bank, uint32_t preset);
+
+/** @brief  Get favourte preset class
+*   @param  favourite Index of favourite
+*   @retval string Name of class or empty string if favourite does not exist
+*/
+string getFavouriteClass(uint32_t favourite);
+
+/** @brief  Get favourte preset bank
+*   @param  favourite Index of favourite
+*   @retval uint32_t Index of bank within which favourite resides
+*/
+uint32_t getFavouriteBank(uint32_t favourite);
+
+/** @brief  Get favourte preset preset
+*   @param  favourite Index of favourite
+*   @retval uint32_t Index of preset
+*/
+uint32_t getFavouritePreset(uint32_t favourite);
+
+/** @brief  Check if a preset is a favourite
+*   @param  class Name of engine class
+*   @param  bank Index of bank (ignored if class does not support banks)
+*   @param  preset Index of preset
+*   @retval bool True if preset is a favourite
+*/
+bool isFavourite(string class, uint32_t bank, uint32_t preset);
+
+/** @brief  Get quantity of parameters for an engine class
+*   @param  class Name of engine class
+*   @retval uint32_t Quantity of parameters the engine class exposes
+*/
+uint32_t getEngineClassParameterCount(string class);
+
+/** @brief  Get an engine class parameter name
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @retval string Parameter name
+*/
+string getEngineClassParameterName(string class, uint32_t parameter);
+
+/** @brief  Get an engine class parameter type
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @retval string Parameter type
+*/
+string getEngineClassParameterType(string class, uint32_t parameter);
+
+/** @brief  Get an engine class parameter minimum value
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @retval float Minimum value (0 if not valid)
+*/
+float getEngineClassParameterMinimum(string class, uint32_t parameter);
+
+/** @brief  Get an engine class parameter maximum value
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @retval float Maximum value (0 if not valid)
+*/
+float getEngineClassParameterMaximum(string class, uint32_t parameter);
+
+/** @brief  Get size of step a class parameter value may change by
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @retval float Parameter step size (0.0 if not valid)
+*/
+float getEngineClassParameterStep(string class, uint32_t parameter);
+
+/** @brief  Get class parameter units
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @retval string Parameter units (empty string if not valid)
+*/
+float getEngineClassParameterUnits(string class, uint32_t parameter);
+
+/** @brief  Get class parameter group
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @retval string Name of group parameter belongs (empty string if not valid)
+*/
+float getEngineClassParameterGroup(string class, uint32_t parameter);
+
+/** @brief  Get quantity of class parameter enumeration values
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @retval uint32_t Quantity of enumeration values (0 if not valid)
+*/
+uint32_t getEngineClassParameterEnums(string class, uint32_t parameter);
+
+/** @brief  Get class parameter enumeration name
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @param  enum Index of the enumeration
+*   @retval string Name of the indexed enumeration (empty string if not valid)
+*/
+string getEngineClassParameterEnums(string class, uint32_t parameter, uint32_t enum);
+
+/** @brief  Get class parameter enumeration value
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @param  enum Index of the enumeration
+*   @retval string value of the indexed enumeration (empty string if not valid)
+*   @todo   Should we add methods for each type of enum: string, float, integer?
+*/
+string getEngineClassParameterEnums(string class, uint32_t parameter, uint32_t enum);
+
+
+/*  Routing Graph
+    Audio and MIDI routing is handled by jack
+    Exposed via API to allow CRUD on jack routing by clients
+*/
+
+//!@todo Implement API access to routing graph
+
+
+/*  Presets
+    A preset is a configuration of an engine
+    Preset access is implemented in Engine and Engine Class sections
+*/
+
+
+/*  Snapshots
+    A snapshot is a full capture of the whole data model including:
+    * instantiated engines
+    * engine parameters
+    * routing
+    * mixer settings
+    * chain configuration
+    * etc.
+*/
+
+/** @brief  Get quantity of available snapshots
+*   @retval uint32_t Quantity of available snapshots
+*/
+uint32_t getSnapshotCount();
+
+/** @brief  Get name of snapshot
+*   @param  snapshot Index of snapshot
+*   @retval string Name of snapshot
+*/
+string getSnapshotNameByIndex(uint32_t snapshot);
+
+/** @brief  Get name of snapshot
+*   @param  path Full path and filename of snapshot
+*   @retval string Name of snapshot
+*/
+string getSnapshotNameByPath(string path);
+
+/** @brief  Set name of currently loaded snapshot
+*   @param  snapshot Index of snapshot
+*   @param  name New name for snapshot
+*/
+void setSnapshotName(uint32_t snapshot, string name);
+
+/** @brief  Restore a snapshot from persistent storage
+*   @param  path Full path and filename to snapshot file
+*   @retval bool True on success
+*/
+bool loadSnapshot(string path);
+
+/** @brief  Store current data model as a snapshot to persistent storage
+*   @param  path Full path and filename to snapshot file
+*   @retval bool True on success
+*/
+bool saveSnapshot(string path);
+
+
+/*  Physical UI
+    Access to switches, encoders, endless pots, LEDs, etc.
+*/
+
+/** @brief  Get quantity of switches
+*   @retval uint32_t Quantity of switches
+*/
+uint32_t getSwitchCount();
+
+/** @brief  Set quantity of switches
+*   @param  uint32_t switches
+*/
+void setSwitchCount(uint32_t switches);
+
+/** @brief  Get quantity of rotary encoders
+*   @retval uint32_t Quantity of rotary encoders
+*/
+uint32_t getEncoderCount();
+
+/** @brief  Set quantity of rotary encoders
+*   @param  uint32_t encoders
+*/
+void setEncoderCount(uint32_t encoders);
+
+/** @brief  Get quantity of endless potentiometers
+*   @retval uint32_t Quantity of endless potentiometers
+*/
+uint32_t getEndlessPotCount();
+
+/** @brief  Set quantity of endless potentiometers
+*   @param  uint32_t pots
+*/
+void setEndlessPotCount(uint32_t pots);
+
+/** @brief  Get switch state
+*   @param  switch Index of switch
+*   @retval bool True if switch closed
+*/
+bool isSwitchClosed(uint32_t switch);
+
+//!@todo Finish implementing physical UI, step sequencer, realtime, system
