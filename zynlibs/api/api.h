@@ -142,24 +142,34 @@ string getChainName(uint16_t chain);
 */
 void setChainName(uint16_t chain, string name);
 
-/** @brief  Get bitmask of MIDI channels assinged to chain
+/** @brief  Get bitmask of MIDI virtual cables used by chain
 *   @param  chain Index of chain
-*   @retval uint16_t Bitmask of MIDI channels
+*   @retval uint16_t Bitmask of MIDI virtual cables enabled
 */
-uint16_t getChainMidiChannel(uint16_t chain);
+uint16_t getChainMidiCables(uint16_t chain);
 
-/** @brief  Set chain MIDI channel
+/** @brief  Get bitmask of MIDI channels assigned to chain on a cable
 *   @param  chain Index of chain
-*   @param  channel MIDI channel [0..16, -1 to disable MIDI]
+*   @param  cable MIDI virtual cable [0..15, 0xFF for all cables] (Default: 1)
+*   @retval uint16_t Bitmask of MIDI channels enabled on this virtual cable
 */
-void setChainMidiChannel(uint16_t chain, int channel);
+uint16_t getChainMidiChannels(uint16_t chain, uint8_t cable=1);
 
-/** @brief  Set chain MIDI channels
+/** @brief  Set chain MIDI channel for a virtual cable
+*   @param  chain Index of chain
+*   @param  channel MIDI channel [0..15, 0xFF to disable MIDI]
+*   @param  cable MIDI virtual cable [0..15, 0xFF for all cables] (Default: 1)
+*   @note   To disable a virtual cable, set its MIDI channel to 0xFF
+*/
+void setChainMidiChannel(uint16_t chain, int channel, uint8_t cable=1);
+
+/** @brief  Set chain MIDI channels for a virtual cable
 *   @param  chain Index of chain
 *   @param  channels Bitmask of MIDI channels
-*   @todo   Handle multiple pipes
+*   @param  cable MIDI virtual cable [0..15, 0xFF for all cables] (Default: 1)
+*   @note   To disable a virtual cable, set its MIDI channels to 0
 */
-void setChainMidiChannels(uint16_t chain, uint16_t channels);
+void setChainMidiChannels(uint16_t chain, uint16_t channels, uint8_t cable=1);
 
 /** @brief  Get chain note range filter minimum note value
 *   @param  chain Index of chain
@@ -210,7 +220,6 @@ uint8_t getChainRows(uint16_t chain);
 *   @retval uint8_t Quantity of columns in graphdefaults
 */
 uint8_t getChainColumns(uint16_t chain);
-
 
 /** @brief  Get id of engine within a chain
 *   @param  chain Index of chain
@@ -268,38 +277,101 @@ void copyEngine(uint16_t chain, uint8_t row, uint8_t column);
 */
 string getEngineClass(uint32_t engine);
 
+/** @brief  Get quantity of control signals connected to engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of paramter
+*   @retval uint32_t Quantity of control signals
+*/
+uint32_t getEngineParameterControls(uint32_t engine, string parameter);
+
+/** @brief  Get type of control signal connected to engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of paramter
+*   @param  control Index of control signal
+*   @retval uint32_t Control signals type [0:None, 1:MIDI, 2:OSC]
+*/
+uint32_t getEngineParameterControlType(uint32_t engine, string parameter, uint32_t control);
+
 /** @brief  Get MIDI channel for control assigned to engine parameter
 *   @param  engine Id of engine
 *   @param  parameter Name of paramter
-*   @retval uint8_t MIDI channel
-*   @todo   Do we allow multiple controls assigned to single parameter? If so we need to index them. Should we abstract control layer?
+*   @param  control Index of control signal
+*   @retval uint8_t MIDI channel [0..15]
+*   @note   Only valid for control signal type MIDI
+*   @see    getEngineParameterControlType
 */
-uint16_t getEngineParameterMidiChannel(int engine, string parameter); 
+uint16_t getEngineParameterMidiChannel(uint32_t engine, string parameter, uint32_t control); 
 
 /** @brief  Get MIDI control assigned to engine parameter
 *   @param  engine Id of engine
 *   @param  parameter Name of paramter
-*   @retval uint8_t MIDI CC
-*   @todo   Do we allow multiple controls assigned to single parameter? If so we need to index them.
+*   @param  control Index of control signal
+*   @retval uint8_t MIDI continuous controller [0..127]
+*   @note   Only valid for control signal type MIDI
 */
-uint16_t getEngineParameterMidiControl(int engine, string parameter); 
+uint16_t getEngineParameterMidiControl(uint32_t engine, string parameter, uint32_t control);
 
-/** @brief  Assigns a MIDI CC to control an engine parameter
+/** @brief  Assign MIDI CC to control an engine parameter
 *   @param  engine Id of engine
 *   @param  parameter Name of parameter
-*   @param  uint8_t channel MIDI channel
-*   @param  uint8_t cc MIDI continuous controller
+*   @param  channel MIDI channel
+*   @param  cc MIDI continuous controller
+*   @param  cable Bitmask of MIDI virtual cables (Default: 1, 0 to unassign)
+*   @note   Duplicate channel & cc will replace existing configuration
 *   @todo   May wish to add more complex filtering, scaling, offset, etc.
 */
-void addEngineParameterMidiControl(uint32_t engine, string parameter, int channel, int cc);
+void addEngineParameterMidiControl(uint32_t engine, string parameter, uint8_t channel, uint8_t cc, uint16_t cable=1);
 
-/** @brief  Unassigns a MIDI CC from controlling an engine parameter
+/** @brief  Get analogue control voltage assigned to engine parameter
 *   @param  engine Id of engine
-*   @param  parameter Name of parameter ("ALL" to remove all parameters)
-*   @param  channel MIDI channel [0..15, 0xFF for all channels]
-*   @param  cc MIDI continuous controller [0..127, 0xFF for all controllers]
+*   @param  parameter Name of paramter
+*   @param  control Index of control signal
+*   @retval uint32_t Id of control voltage
+*   @note   Only valid for control signal type CV
 */
-void removeEngineMidiControl(uint32_t engine, string parameter, int channel, int cc);
+uint32_t getEngineParameterCV(uint32_t engine, string parameter, uint32_t control);
+
+/** @brief  Assign analogue control voltage to control an engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @param  cv Id of control voltage input
+*   @note   Duplicate cv will replace existing configuration
+*   @todo   May wish to add more complex filtering, scaling, offset, etc.
+*/
+void addEngineParameterCV(uint32_t engine, string parameter, uint32_t cv);
+
+/** @brief  Get switch assigned to engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of paramter
+*   @param  control Index of control signal
+*   @retval uint32_t Id of switch
+*   @note   Only valid for control signal type SWITCH
+*/
+uint32_t getEngineParameterSwitch(uint32_t engine, string parameter, uint32_t control);
+
+/** @brief  Assign switch to control an engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @param  switch Id of switch input
+*   @note   Duplicate switch will replace existing configuration
+*/
+void addEngineParameterSwitch(uint32_t engine, string parameter, uint32_t switch);
+
+/** @brief  Get OSC path assigned to engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of paramter
+*   @retval string OSC path
+*   @note   Only valid for control signal type OSC
+*/
+uint16_t getEngineParameterOscPath(uint32_t engine, string parameter);
+
+/** @brief  Remove control of an engine parameter
+*   @param  engine Id of engine
+*   @param  parameter Name of parameter
+*   @param  control Index of control
+*   @note   This may change index of other controls assigned to parameter
+*/
+void removeEngineParameterControl(uint32_t engine, string parameter, uint32_t control);
 
 /** @brief  Get the index of an engine's currently loaded preset
 *   @param  engine Id of engine
@@ -385,19 +457,19 @@ void setEngineParameterAsString(uint32_t engine, string parameter, string value)
 *   @param  engine Id of engine
 *   @retval uint16_t Id of chain or 0xFFFF for invalid engine id
 */
-uint16_t getEngineChain(int engine);
+uint16_t getEngineChain(uint32_t engine);
 
 /** @brief  Get chain row an engine is positioned
 *   @param  engine Id of engine
 *   @retval uint8_t Row or 0xFF for invalid engine id
 */
-uint8_t getEngineRow(int engine);
+uint8_t getEngineRow(uint32_t engine);
 
 /** @brief  Get chain column an engine is positioned
 *   @param  engine Id of engine
 *   @retval uint8_t Column or 0xFF for invalid engine id
 */
-uint8_t getEngineColumn(int engine);
+uint8_t getEngineColumn(uint32_t engine);
 
 /*  Engine Classes
     Classes or types of different engines
@@ -688,32 +760,16 @@ bool saveSnapshot(string path);
 */
 uint32_t getSwitchCount();
 
-/** @brief  Set quantity of switches
-*   @param  uint32_t switches
-*/
-void setSwitchCount(uint32_t switches);
-
 /** @brief  Get quantity of rotary encoders
 *   @retval uint32_t Quantity of rotary encoders
 */
 uint32_t getEncoderCount();
-
-/** @brief  Set quantity of rotary encoders
-*   @param  uint32_t encoders
-*/
-void setEncoderCount(uint32_t encoders);
 
 /** @brief  Get quantity of endless potentiometers
 *   @retval uint32_t Quantity of endless potentiometers
 *   @todo   Is this same as encoder due to abstraction?
 */
 uint32_t getEndlessPotCount();
-
-/** @brief  Set quantity of endless potentiometers
-*   @param  uint32_t pots
-*   @todo   Is this same as encoder due to abstraction?
-*/
-void setEndlessPotCount(uint32_t pots);
 
 /** @brief  Get switch state
 *   @param  switch Index of switch
@@ -729,6 +785,7 @@ bool isSwitchClosed(uint32_t switch);
 *   @param  value MIDI value
 *   @retval int
 *   @todo   Document return value. What is event type?
+*   @todo   Where does this MIDI command go? Do we need to route to an output?
 */
 int assignSwitchMidi(uint8_t switch, midi_event_type event, uint8_t midiChannel, uint8_t command, uint8_t value);
 
