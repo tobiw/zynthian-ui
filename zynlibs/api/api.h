@@ -1114,32 +1114,32 @@ void reboot();
 */
 void panic();
 
-/** @brief  Start recording
+/** @brief  Start recorder
 *   @param  type Recording type [1:Audio recording, 2:Audio playback, 4:MIDI recording, 8:MIDI playback]
 *   @param  filename Full path and filename for new recording (Default: Unique timestamped filename)
 */
-void startRecording(uint8_t type, string filename="");
+void startRecorder(uint8_t type, string filename="");
 
-/** @brief  Stop recording
+/** @brief  Stop recorder
 *   @param  type Bitmask of recording type [1:Audio recording, 2:Audio playback, 4:MIDI recording, 8:MIDI playback]
 *   @param  filename Full path and filename of recording (Default: All)
 */
-void stopRecording(uint8_t type, string filename="");
+void stopRecorder(uint8_t type, string filename="");
 
 /** @brief  Check if any recording or playback running
 *   @param  type Bitmask of recording type [1:Audio recording, 2:Audio playback, 4:MIDI recording, 8:MIDI playback]
-*   @retval bool True if any audio is recording
+*   @retval bool True if any specified recorder is rolling
 */
-bool isRecording(uint8_t type);
+bool isRecorderRolling(uint8_t type);
 
-/** @brief  Register recording
+/** @brief  Register recorder
 *   @param  callback Pointer to callback (uint8_t type, string filename)
 *   @param  type Bitmask of recording type [1:Audio recording, 2:Audio playback, 4:MIDI recording, 8:MIDI playback]
 */
-void registerRecording(void* callback, uint8_t type);
+void registerRecorder(void* callback, uint8_t type);
 
-/** @brief  Unregister recording
+/** @brief  Unregister recorder
 *   @param  callback Pointer to callback
 *   @param  type Bitmask of recording type [1:Audio, 2:MIDI]
 */
-void unregisterRecording(void* callback, uint8_t type);
+void unregisterRecorder(void* callback, uint8_t type);
