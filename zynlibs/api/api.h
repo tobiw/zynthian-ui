@@ -94,15 +94,15 @@ float getPeakHold(int channel, int leg);
 
 /** @brief  Register a callback for mixer state changes
 *   @param  callback Pointer to callback function
-*   @param  bitmask Bitmask flag indication of parameters to monitor [0:Fader, 1:Mute, 2:Solo, 4:Mono, 8:Peak Audio, 16:Peak Hold] (Default: All)
+*   @param  parameters Bitmask flag indication of parameters to monitor [0:Fader, 1:Mute, 2:Solo, 4:Mono, 8:Peak Audio, 16:Peak Hold] (Default: All)
 */
-void registerMixer(void* callback, uint32_t bitmask=0xFFFFFFFF);
+void registerMixer(void* callback, uint32_t parameters=0xFFFFFFFF);
 
 /** @brief  Unregister a callback for mixer state changes
 *   @param  callback Pointer to callback function
-*   @param  bitmask Bitmask flag indication of parameters to unregister [0:Fader, 1:Mute, 2:Solo, 4:Mono, 8:Peak Audio, 16:Peak Hold] (Default: All) (Default: All)
+*   @param  parmeters Bitmask flag indication of parameters to unregister [0:Fader, 1:Mute, 2:Solo, 4:Mono, 8:Peak Audio, 16:Peak Hold] (Default: All) (Default: All)
 */
-void unregisterMixer(void* callback, uint32_t bitmask=0xFFFFFFFF);
+void unregisterMixer(void* callback, uint32_t parameters=0xFFFFFFFF);
 
 /*  Chains
     A chain is a set of engines with audio and control signal interlinks
@@ -129,6 +129,11 @@ void setMaxChains(uint16_t max);
 *   @retval uint16_t Quantity of chains defined in current snapshot
 */
 uint16_t getChainCount();
+
+/** @brief  Register for notification on change of quantity of chains
+*   @param  callback Pointer to callback (void)
+*/
+void registerChainCount(void* callback);
 
 /** @brief  Get chain name
 *   @param  chain Index of chain
@@ -204,7 +209,7 @@ int8_t getChainTranspose(uint16_t chain);
 void setChainTranspose(uint16_t chain, int8_t transpose);
 
 /** @brief  Get quantity of engines in a chain
-*   @param  chain Index of chain
+*   @param  chain Index of chain (0xFFFFFFFF for all chains, i.e. all instantiated engines)
 *   @retval uint32_t Quantity of engines in chain
 */
 uint32_t getEngineCount(uint16_t chain);
@@ -265,6 +270,18 @@ void moveEngine(uint16_t chain, uint8_t row, uint8_t column);
 */
 void copyEngine(uint16_t chain, uint8_t row, uint8_t column);
 
+/** @brief  Register notification on chain change
+*   @param  callback Pointer to callback (uint32_t bitmask)
+*   @param  parameter Bitmask of parameters within chain to monitor [1:Engine (added, removed, moved), 2:Name, 4:MIDI channel, 8:Note range, 16:Transpose]
+*/
+void registerChain(void* callback, uint32_t parameter);
+
+/** @brief  Unregister notification of chain change
+*   @param  callback Pointer to callback to unregister
+*   @param  parameters Bitmask of parameters within chain to monitor [1:Engine (added, removed, moved), 2:Name, 4:MIDI channel, 8:Note range, 16:Transpose]
+*/
+void unregisterChain(void* callback, uint32_t parameters);
+
 
 /*  Engines
     Engines are instances of Engine Classes
@@ -311,16 +328,18 @@ uint16_t getEngineParameterMidiChannel(uint32_t engine, string parameter, uint32
 */
 uint16_t getEngineParameterMidiControl(uint32_t engine, string parameter, uint32_t control);
 
+//!@todo    Add ability to set range & scale to control signals
+//!@todo    Add ability to configure control signal as relative or absolute controller
+
 /** @brief  Assign MIDI CC to control an engine parameter
 *   @param  engine Id of engine
 *   @param  parameter Name of parameter
 *   @param  channel MIDI channel
 *   @param  cc MIDI continuous controller
-*   @param  cable Bitmask of MIDI virtual cables (Default: 1, 0 to unassign)
+*   @param  cables Bitmask of MIDI virtual cables (Default: 1, 0 to unassign)
 *   @note   Duplicate channel & cc will replace existing configuration
-*   @todo   May wish to add more complex filtering, scaling, offset, etc.
 */
-void addEngineParameterMidiControl(uint32_t engine, string parameter, uint8_t channel, uint8_t cc, uint16_t cable=1);
+void addEngineParameterMidiControl(uint32_t engine, string parameter, uint8_t channel, uint8_t cc, uint16_t cables=1);
 
 /** @brief  Get analogue control voltage assigned to engine parameter
 *   @param  engine Id of engine
@@ -336,7 +355,6 @@ uint32_t getEngineParameterCV(uint32_t engine, string parameter, uint32_t contro
 *   @param  parameter Name of parameter
 *   @param  cv Id of control voltage input
 *   @note   Duplicate cv will replace existing configuration
-*   @todo   May wish to add more complex filtering, scaling, offset, etc.
 */
 void addEngineParameterCV(uint32_t engine, string parameter, uint32_t cv);
 
@@ -376,7 +394,6 @@ void removeEngineParameterControl(uint32_t engine, string parameter, uint32_t co
 /** @brief  Get the index of an engine's currently loaded preset
 *   @param  engine Id of engine
 *   @retval int Preset index or -1 if no preset loaded
-*   @todo   If we allow only one control assigned to each parameter we don't need to pass MIDI parameters here
 */
 int getEnginePreset(uint32_t engine);
 
@@ -471,6 +488,29 @@ uint8_t getEngineRow(uint32_t engine);
 */
 uint8_t getEngineColumn(uint32_t engine);
 
+/** @brief  Register for engine preset change
+*   @param  callback Pointer to callback (uint32_t engine, uint32_t bank, uint32_t preset)
+*/
+void registerEnginePreset(void* callback);
+
+/** @brief  Unregister for engine preset change
+*   @param  callback Pointer to callback (uint32_t engine, uint32_t bank, uint32_t preset)
+*/
+void unregisterEnginePreset(void* callback);
+
+/** @brief  Register for engine parameter change
+*   @param  callback Pointer to callback (uint32_t engine, uint32_t parameter)
+*   @param  parameter Index of parameter to monitor
+*/
+void registerEngineParameter(void* callback, uint32_t parameter);
+
+/** @brief  Unregister for engine parameter change
+*   @param  callback Pointer to callback
+*   @param  parameter Index of parameter to monitor
+*/
+void unregisterEngineParameter(void* callback, uint32_t parameter);
+
+
 /*  Engine Classes
     Classes or types of different engines
     May be audio or MIDI (or other control signal) generators
@@ -545,7 +585,6 @@ void removeEngineClassBank(string class, string name);
 *   @param  class Name of engine class
 *   @param  bank Index of bank
 *   @retval uint32_t Quantity of presets
-*   @todo   Should we use bank name to identify bank?
 */
 uint32_t getEngineClassPresetCount(string class, uint32_t bank);
 
@@ -554,7 +593,6 @@ uint32_t getEngineClassPresetCount(string class, uint32_t bank);
 *   @param  bank Index of bank (ignored if class does not support banks)
 *   @param  preset Index of preset
 *   @retval string Name of class or empty string if preset does not exist
-*   @todo   Should we use bank name to identify bank?
 */
 string getEngineClassPresetName(string class, uint32_t bank, uint32_t preset);
 
@@ -679,24 +717,92 @@ uint32_t getEngineClassParameterEnums(string class, uint32_t parameter);
 *   @param  enum Index of the enumeration
 *   @retval string Name of the indexed enumeration (empty string if not valid)
 */
-string getEngineClassParameterEnums(string class, uint32_t parameter, uint32_t enum);
+string getEngineClassParameterEnumName(string class, uint32_t parameter, uint32_t enum);
 
-/** @brief  Get class parameter enumeration value
+/** @brief  Get class parameter enumeration value as string
 *   @param  class Name of engine class
 *   @param  parameter Index of the parameter
 *   @param  enum Index of the enumeration
-*   @retval string value of the indexed enumeration (empty string if not valid)
-*   @todo   Should we add methods for each type of enum: string, float, integer?
+*   @retval string value of the indexed enumeration (empty string if not valid or cannot convert type)
 */
-string getEngineClassParameterEnums(string class, uint32_t parameter, uint32_t enum);
+string getEngineClassParameterEnumString(string class, uint32_t parameter, uint32_t enum);
 
+/** @brief  Get class parameter enumeration value as float
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @param  enum Index of the enumeration
+*   @retval float value of the indexed enumeration (0.0 if not valid or cannot convert type)
+*/
+float getEngineClassParameterEnumFloat(string class, uint32_t parameter, uint32_t enum);
+
+/** @brief  Get class parameter enumeration value as integer
+*   @param  class Name of engine class
+*   @param  parameter Index of the parameter
+*   @param  enum Index of the enumeration
+*   @retval int value of the indexed enumeration (0 if not valid or cannot convert type)
+*   @todo   Do we need to get integer value? Could just get float and cast to integer
+*/
+int getEngineClassParameterEnumInt(string class, uint32_t parameter, uint32_t enum);
 
 /*  Routing Graph
     Audio and MIDI routing is handled by jack
-    Exposed via API to allow CRUD on jack routing by clients
+    CV routing is handled by Zynthian core
+    Quantity of engines can be obtained by calling getEngines(0xFFFFFFFF)
+    Quantity of engine inputs can be obtained by calling getEngineClassInputCount()
+    Quantity of engine outputs can be obtained by calling getEngineClassOutputCount()
+    Exposed via API to allow CRUD on jack and CV routing by clients
+    Manipulation of routing graph overrides chain automatic routing
 */
 
-//!@todo Implement API access to routing graph
+/** @brief  Get quantity of routes / interconnects in routing graph
+*   @param  types Bitmask of signal type [1:Audio, 2:MIDI, 3:CV]
+*   @retval uint32_t Quantity of routes in graph
+*/
+uint32_t getGraphRoutes(uint32_t types=0xFFFFFFFF);
+
+/** @brief  Get engine connected to route
+*   @param  route Index of route
+*   @param  destination True if node is destination of route
+*   @param  types Bitmask of signal type [1:Audio, 2:MIDI, 3:CV] (Default: All)
+*   @retval uint32_t Id of engine (0xFFFFFFFF if route id is invalid)
+*   @note   Can iterate over same index range provided by getGraphRoutes with same types
+*/
+uint32_t getGraphEngineA(uint32_t route, bool destination, uint32_t types=0xFFFFFFFF);
+
+/** @brief  Add an interconnect to routing graph
+*   @param  source Id of source engine
+*   @param  output Index of source engine output
+*   @param  destination Id of destination engine
+*   @param  input Index of destination engine input
+*   @retval bool True on success
+*   @todo   Define physical inputs and outputs
+*/
+bool addRoute(uint32_t source, uint32_t output, uint32_t destination, uint32_t input);
+
+/** @brief  Remove an interconnect from routing graph
+*   @param  route Index of route
+*   @param  types Bitmask of signal type [1:Audio, 2:MIDI, 3:CV] (Default: All)
+*   @note   Index is relevant to types
+*/
+void removeRoute(uint32_t route, uint32_t types=0xFFFFFFFF);
+
+/** @brief  Remove an interconnect from routing graph
+*   @param  source Id of source engine
+*   @param  output Index of source engine output
+*   @param  destination Id of destination engine
+*   @param  input Index of destination engine input
+*/
+void removeRoute(uint32_t source, uint32_t output, uint32_t destination, uint32_t input);
+
+/** @brief  Register for route change
+*   @param  callback Pointer to callback function (uint32_t route)
+*/
+void registerRoute(void* callback);
+
+/** @brief  Unregister for route change
+*   @param  callback Pointer to callback function
+*/
+void unregisterRoute(void* callback);
 
 
 /*  Presets
@@ -760,22 +866,24 @@ bool saveSnapshot(string path);
 */
 uint32_t getSwitchCount();
 
-/** @brief  Get quantity of rotary encoders
-*   @retval uint32_t Quantity of rotary encoders
-*/
-uint32_t getEncoderCount();
-
-/** @brief  Get quantity of endless potentiometers
-*   @retval uint32_t Quantity of endless potentiometers
-*   @todo   Is this same as encoder due to abstraction?
-*/
-uint32_t getEndlessPotCount();
-
 /** @brief  Get switch state
 *   @param  switch Index of switch
 *   @retval bool True if switch closed
+*   @todo   Rationalise read of Boolean values - getState or isClosed?
 */
 bool isSwitchClosed(uint32_t switch);
+
+/** @brief  Register switch change
+*   @param  callback Pointer to callback function (uint32_t switch, bool state)
+*   @param  switch Index of switch (Default: All)
+*/
+void registerSwitch(void* callback, uint32_t switch=0xFFFFFFFF);
+
+/** @brief  Unregister switch change
+*   @param  callback Pointer to callback function
+*   @param  switch Index of switch (Default: All)
+*/
+void unregisterSwitch(void* callback, uint32_t switch=0xFFFFFFFF);
 
 /** @brief  Assign a MIDI command to a UI switch
 *   @param  switch Index of switch
@@ -790,11 +898,13 @@ bool isSwitchClosed(uint32_t switch);
 int assignSwitchMidi(uint8_t switch, midi_event_type event, uint8_t midiChannel, uint8_t command, uint8_t value);
 
 //!@todo Document get_zynswitch
-unsigned int get_zynswitch(uint8_t i, unsigned int long_dtus);
+unsigned int getZynswitch(uint8_t switch, unsigned int longDtus);
 
-//-----------------------------------------------------------------------------
-// Zynpot common API
-//-----------------------------------------------------------------------------
+/** @brief  Get quantity of rotary encoders
+*   @retval uint32_t Quantity of rotary encoders
+*   @note   Endless potentiometers and rotary encoders are exposed as zynpot
+*/
+uint32_t getZynpotCount();
 
 /** @brief  Configure a zynpot
 *   @param  zynpot Index of zynpot
@@ -821,6 +931,18 @@ int32_t zynpotGetValue(uint8_t zynpot);
 */
 int zynpotSetValue(uint8_t zynpot, int32_t value, bool send);
 
+/** @brief  Register zynpot change
+*   @param  callback Pointer to callback function (uint32_t zynpot, int value)
+*   @param  zynpot Index of zynpot (Default: All)
+*/
+void registerZynpot(void* callback, uint32_t zynpot = 0xFFFFFFFF);
+
+/** @brief  Unregister zynpot change
+*   @param  callback Pointer to callback function
+*   @param  zynpot Index of zynpot (Default: All)
+*/
+void unregisterZynpot(void* callback, uint32_t zynpot = 0xFFFFFFFF);
+
 //!@todo   Document getZynpotFlag
 uint8_t get_value_flag_zynpot(uint8_t zynpot);
 
@@ -839,6 +961,19 @@ int zynpotSetupMidi(uint8_t zynpot, uint8_t channel, uint8_t command);
 */
 int zynpotSetupOsc(uint8_t zynpot, char *path);
 
+/** @brief  Register arbitrary OSC path
+*   @param  callback Pointer to callback function (string path, ...)
+*   @param  path OSC path
+*   @param  parameters Comma separated list of OSC parameter types
+*   @todo   How to pass values to callback?
+*/
+void registerOsc(void* callback, string path, string parameters);
+
+/** @brief  Unregister arbitrary OSC path
+*   @param  callback Pointer to callback function
+*   @param  path OSC path
+*/
+void unregisterOsc(void* callback, string path);
 
 /*  Step Sequencer
     See zynseq.h
@@ -857,13 +992,20 @@ int zynpotSetupOsc(uint8_t zynpot, char *path);
 void sendMidi(uint8_t channel, uint8_t command, uint8_t value);
 
 /** @brief  Register callback to receive MIDI messages
-*   @param  callback Pointer to callback accepting (uint8_t channel, uint8_t command, uint8_t value)
+*   @param  callback Pointer to callback (uint8_t channel, uint8_t command, uint8_t value)
 *   @param  channel MIDI channel (0..15, 0xFF for all)
 *   @param  command MIDI command (0..127, 0xFF for all)
 *   @param  min Minimum MIDI value (0..127, Default: 0, ignored for 2 byte commands)
 *   @param  max Maximum MIDI value (0..127, Default: 127, ignored for 2 byte commands)
 */
 void registerMidi(void* callback, uint8_t channel, uint8_t command, uint8_t min=0, uint8_t max=127);
+
+/** @brief  Unregister callback to receive MIDI messages
+*   @param  callback Pointer to callback
+*   @param  channel MIDI channel (0..15, 0xFF for all)
+*   @param  command MIDI command (0..127, 0xFF for all)
+*/
+void unregisterMidi(void* callback, uint8_t channel, uint8_t command);
 
 /** @brief  Get transport state
 *   @retval uint8_t Current transport state
@@ -875,6 +1017,16 @@ uint8_t getTransportState();
 */
 void setTransportState(uint8_t state);
 
+/** @brief  Register transport state change
+*   @param  callback Pointer to callback funtion (uint8_t state)
+*/
+void registerTransportState(void* callback);
+
+/** @brief  Unregister transport state change
+*   @param  callback Pointer to callback funtion.
+*/
+void unregisterTransportState(void* callback);
+
 /** @brief  Get transport position
 *   @retval uint32_t Transport position in ticks
 */
@@ -884,6 +1036,17 @@ uint32_t getTransportPosition();
 *   @param  position New position in ticks
 */
 void setTransportPosition(uint32_t position);
+
+/** @brief  Register transport position change
+*   @param  callback Pointer to callback funtion (uint32_t position)
+*   @param  delta Change in ticks before new postion triggers callback
+*/
+void registerTransportPosition(void* callback, uint32_t delta);
+
+/** @brief  Unregister transport position change
+*   @param  callback Pointer to callback funtion
+*/
+void unregisterTransportPosition(void* callback);
 
 
 /*  System messages
@@ -922,6 +1085,18 @@ uint32_t getUnderVoltage()
 */
 void resetUnderVoltage();
 
+/** @brief  Register warning
+*   @param  callback Pointer to callback (uint32_t warning)
+*   @param  warning Bitmask of wanring types [1:xrun, 2:Temperature, 4:Voltage]
+*/
+void registerWarning(void* callback, uint32_t warning);
+
+/** @brief  Unregister warning
+*   @param  callback Pointer to callback
+*   @param  warning Bitmask of wanring types [1:xrun, 2:Temperature, 4:Voltage]
+*/
+void unregisterWarning(void* callback, uint32_t warning);
+
 /** @brief  Restart core
 *   @note   Engines will be destroyed and recreated. Sequences will be stopped.
 */
@@ -939,12 +1114,32 @@ void reboot();
 */
 void panic();
 
-/** @brief  Start audio recording
+/** @brief  Start recording
+*   @param  type Recording type [1:Audio recording, 2:Audio playback, 4:MIDI recording, 8:MIDI playback]
 *   @param  filename Full path and filename for new recording (Default: Unique timestamped filename)
 */
-void startAudioRecording(string filename="");
+void startRecording(uint8_t type, string filename="");
 
-/** @brief  Start MIDI recording
-*   @param  filename Full path and filename for new recording (Default: Unique timestamped filename)
+/** @brief  Stop recording
+*   @param  type Bitmask of recording type [1:Audio recording, 2:Audio playback, 4:MIDI recording, 8:MIDI playback]
+*   @param  filename Full path and filename of recording (Default: All)
 */
-void startMidiRecording(string filename="");
+void stopRecording(uint8_t type, string filename="");
+
+/** @brief  Check if any recording or playback running
+*   @param  type Bitmask of recording type [1:Audio recording, 2:Audio playback, 4:MIDI recording, 8:MIDI playback]
+*   @retval bool True if any audio is recording
+*/
+bool isRecording(uint8_t type);
+
+/** @brief  Register recording
+*   @param  callback Pointer to callback (uint8_t type, string filename)
+*   @param  type Bitmask of recording type [1:Audio recording, 2:Audio playback, 4:MIDI recording, 8:MIDI playback]
+*/
+void registerRecording(void* callback, uint8_t type);
+
+/** @brief  Unregister recording
+*   @param  callback Pointer to callback
+*   @param  type Bitmask of recording type [1:Audio, 2:MIDI]
+*/
+void unregisterRecording(void* callback, uint8_t type);
