@@ -83,26 +83,26 @@ void setMono(int channel, bool value);
 *   @param  leg 0 for left, 1 for right
 *   @retval float Instantaneous audio level [0..-200dBFS]
 */
-float getPeakProgramme(int channel, int leg);
+float getPeakLevel(int channel, int leg);
 
 /** @brief  Get mixer channel peak hold audio level
 *   @param  channel Index of channel
 *   @param  leg 0 for left, 1 for right
 *   @retval float Peak hold audio level [0..-200dBFS]
 */
-float getPeakHoldA(int channel, int leg);
+float getPeakHold(int channel, int leg);
 
 /** @brief  Register a callback for mixer state changes
 *   @param  callback Pointer to callback function
-*   @param  bitmap Bitmap flag indication of parameters to monitor
+*   @param  bitmask Bitmask flag indication of parameters to monitor [0:Fader, 1:Mute, 2:Solo, 4:Mono, 8:Peak Audio, 16:Peak Hold] (Default: All)
 */
-void registerMixer(void* callback, uint32_t bitmap);
+void registerMixer(void* callback, uint32_t bitmask=0xFFFFFFFF);
 
 /** @brief  Unregister a callback for mixer state changes
 *   @param  callback Pointer to callback function
-*   @param  bitmap Bitmap flag indication of parameters to unregister (Default: 0xFFFFFFFF unregister all)
+*   @param  bitmask Bitmask flag indication of parameters to unregister [0:Fader, 1:Mute, 2:Solo, 4:Mono, 8:Peak Audio, 16:Peak Hold] (Default: All) (Default: All)
 */
-void unregisterMixer(void* callback, uint32_t bitmap=0xFFFFFFFF);
+void unregisterMixer(void* callback, uint32_t bitmask=0xFFFFFFFF);
 
 /*  Chains
     A chain is a set of engines with audio and control signal interlinks
@@ -142,17 +142,24 @@ string getChainName(uint16_t chain);
 */
 void setChainName(uint16_t chain, string name);
 
-/** @brief  Get chain MIDI channel
+/** @brief  Get bitmask of MIDI channels assinged to chain
 *   @param  chain Index of chain
-*   @retval int MIDI channel [0..15, -1 for none]
+*   @retval uint16_t Bitmask of MIDI channels
 */
-int getChainMidiChannel(uint16_t chain);
+uint16_t getChainMidiChannel(uint16_t chain);
 
 /** @brief  Set chain MIDI channel
 *   @param  chain Index of chain
 *   @param  channel MIDI channel [0..16, -1 to disable MIDI]
 */
 void setChainMidiChannel(uint16_t chain, int channel);
+
+/** @brief  Set chain MIDI channels
+*   @param  chain Index of chain
+*   @param  channels Bitmask of MIDI channels
+*   @todo   Handle multiple pipes
+*/
+void setChainMidiChannels(uint16_t chain, uint16_t channels);
 
 /** @brief  Get chain note range filter minimum note value
 *   @param  chain Index of chain
@@ -224,7 +231,8 @@ void removeEngine(uint32_t engine);
 *   @param  chain Index of chain
 *   @param  row Vertical position of engine within chain graph
 *   @param  col Horizontal position of engine within chain graph
-*   @retval uint32_t Index of engine or 0xFFFFFFFF if engine cannot be instantiated
+*   @param  class Name of engine class being added
+*   @retval uint32_t Id of engine or 0xFFFFFFFF if engine cannot be instantiated
 *   @note   Engine instance is instantiated with default parameters and connected to adjacent horizontal slots
 *   @note   Replaces and destroys any existing engine at same location in graph
 *   @note   Use special classes JOIN_INPUT, JOIN_OUTPUT, JOIN_BOTH to connect input / output of horizontally adjacent slots to vertically adjacent slots
@@ -240,6 +248,14 @@ uint32_t addEngine(uint16_t chain, uint8_t row, uint8_t column, string class);
 */
 void moveEngine(uint16_t chain, uint8_t row, uint8_t column);
 
+/** @brief  Copies (clones) an engine to a new position in a chain
+*   @param  engine Id of engine to copy
+*   @param  chain New chain id
+*   @param  row New row position
+*   @param  column New column
+*/
+void copyEngine(uint16_t chain, uint8_t row, uint8_t column);
+
 
 /*  Engines
     Engines are instances of Engine Classes
@@ -247,18 +263,16 @@ void moveEngine(uint16_t chain, uint8_t row, uint8_t column);
 */
 
 /** @brief  Get the class of engine within chain 
-*   @param  chain Index of chain
-*   @param  row Vertical position of engine within chain graph
-*   @param  col Horizontal position of engine within chain graph
+*   @param  engine Id of engine
 *   @retval string Class name of engine
 */
-string getEngineClass(int chain, int row, int column);
+string getEngineClass(uint32_t engine);
 
 /** @brief  Get MIDI channel for control assigned to engine parameter
 *   @param  engine Id of engine
 *   @param  parameter Name of paramter
 *   @retval uint8_t MIDI channel
-*   @todo   Do we allow multiple controls assigned to single parameter? If so we need to index them.
+*   @todo   Do we allow multiple controls assigned to single parameter? If so we need to index them. Should we abstract control layer?
 */
 uint16_t getEngineParameterMidiChannel(int engine, string parameter); 
 
@@ -691,11 +705,13 @@ void setEncoderCount(uint32_t encoders);
 
 /** @brief  Get quantity of endless potentiometers
 *   @retval uint32_t Quantity of endless potentiometers
+*   @todo   Is this same as encoder due to abstraction?
 */
 uint32_t getEndlessPotCount();
 
 /** @brief  Set quantity of endless potentiometers
 *   @param  uint32_t pots
+*   @todo   Is this same as encoder due to abstraction?
 */
 void setEndlessPotCount(uint32_t pots);
 
@@ -705,4 +721,173 @@ void setEndlessPotCount(uint32_t pots);
 */
 bool isSwitchClosed(uint32_t switch);
 
-//!@todo Finish implementing physical UI, step sequencer, realtime, system
+/** @brief  Assign a MIDI command to a UI switch
+*   @param  switch Index of switch
+*   @param  event Type of MIDI event to send when switch closed
+*   @param  channel MIDI channel
+*   @param  command MIDI command
+*   @param  value MIDI value
+*   @retval int
+*   @todo   Document return value. What is event type?
+*/
+int assignSwitchMidi(uint8_t switch, midi_event_type event, uint8_t midiChannel, uint8_t command, uint8_t value);
+
+//!@todo Document get_zynswitch
+unsigned int get_zynswitch(uint8_t i, unsigned int long_dtus);
+
+//-----------------------------------------------------------------------------
+// Zynpot common API
+//-----------------------------------------------------------------------------
+
+/** @brief  Configure a zynpot
+*   @param  zynpot Index of zynpot
+*   @param  min Minimum value
+*   @param  max Maximum value
+*   @param  value Current / default value
+*   @param  step Quantity of units to skip for each incremental change
+*   @retval int
+*   @todo   Describe return value
+*/
+int zynpotSetup(uint8_t zynpot, int32_t min, int32_t max, int32_t value, int32_t step);
+
+/** @brief  Get current value of zynpot
+*   @param  zynpot Index of zynpot
+*   @retval int32_t Current value
+*/
+int32_t zynpotGetValue(uint8_t zynpot);
+
+/** @brief  Set value of zynpot
+*   @param  zynpot Index of zynpot
+*   @param  value New value
+*   @param  send True to send notification of new value
+*   @todo   Describe return value
+*/
+int zynpotSetValue(uint8_t zynpot, int32_t value, bool send);
+
+//!@todo   Document getZynpotFlag
+uint8_t get_value_flag_zynpot(uint8_t zynpot);
+
+/** @brief  Assign MIDI command to zynpot
+*   @param  zynpot Index of zynpot
+*   @param  channel MIDI channel
+*   @param  command MIDI command
+*   @todo   Describe return value
+*/
+int zynpotSetupMidi(uint8_t zynpot, uint8_t channel, uint8_t command);
+
+/** @brief  Assign OSC command to zynpot
+*   @param  zynpot Index of zynpot
+*   @param  path OSC path
+*   @todo   Describe return value
+*/
+int zynpotSetupOsc(uint8_t zynpot, char *path);
+
+
+/*  Step Sequencer
+    See zynseq.h
+*/
+
+
+/*  Real time messages
+    Messages sent with low latency
+*/
+
+/** @brief  Send a MIDI command
+*   @param  channel MIDI channel
+*   @param  command MIDI command
+*   @param  value MIDI value (ignored for 2 byte commands)
+*/
+void sendMidi(uint8_t channel, uint8_t command, uint8_t value);
+
+/** @brief  Register callback to receive MIDI messages
+*   @param  callback Pointer to callback accepting (uint8_t channel, uint8_t command, uint8_t value)
+*   @param  channel MIDI channel (0..15, 0xFF for all)
+*   @param  command MIDI command (0..127, 0xFF for all)
+*   @param  min Minimum MIDI value (0..127, Default: 0, ignored for 2 byte commands)
+*   @param  max Maximum MIDI value (0..127, Default: 127, ignored for 2 byte commands)
+*/
+void registerMidi(void* callback, uint8_t channel, uint8_t command, uint8_t min=0, uint8_t max=127);
+
+/** @brief  Get transport state
+*   @retval uint8_t Current transport state
+*/
+uint8_t getTransportState();
+
+/** @brief  Set transport state
+*   @param  state New transport state [STOPPED | ROLLING]
+*/
+void setTransportState(uint8_t state);
+
+/** @brief  Get transport position
+*   @retval uint32_t Transport position in ticks
+*/
+uint32_t getTransportPosition();
+
+/** @brief  Set transport position
+*   @param  position New position in ticks
+*/
+void setTransportPosition(uint32_t position);
+
+
+/*  System messages
+    Control and monitoring of core system
+*/
+
+/** @brief  Get time in seconds since boot
+*   @retval uint32_t Quantity of seconds since boot
+*/
+uint32_t getUptime();
+
+/** @brief  Get quantity of xruns since last reset
+*   @retval uint32_t Quantity of xruns
+*/
+uint32_t getXruns();
+
+/** @brief  Reset xrun counter
+*/
+void resetXruns();
+
+/** @brief  Get quantity of high temperature alerts since last reset
+*   @retval uint32_t Quantity of high temperature alerts
+*/
+uint32_t getHigTemperature()
+
+/** @brief  Reset over voltage alert counter
+*/
+void resetHighTemperature();
+
+/** @brief  Get quantity of under voltage alerts since last reset
+*   @retval uint32_t Quantity of under voltage alerts
+*/
+uint32_t getUnderVoltage()
+
+/** @brief  Reset under voltage alert counter
+*/
+void resetUnderVoltage();
+
+/** @brief  Restart core
+*   @note   Engines will be destroyed and recreated. Sequences will be stopped.
+*/
+void restartCore();
+
+/** @brief  Shutdown and power off device
+*/
+void shutdown();
+
+/** @brief  Restart device
+*/
+void reboot();
+
+/** @brief  Send all note off message to all engines
+*/
+void panic();
+
+/** @brief  Start audio recording
+*   @param  filename Full path and filename for new recording (Default: Unique timestamped filename)
+*/
+void startAudioRecording(string filename="");
+
+/** @brief  Start MIDI recording
+*   @param  filename Full path and filename for new recording (Default: Unique timestamped filename)
+*/
+void startMidiRecording(string filename="");
