@@ -1,5 +1,10 @@
 /*  Zynthian core API */
 
+#define PHY_IN 0xFFFFFFFD
+#define PHY_OUT 0xFFFFFFFE
+#define ALL 0xFFFFFFFF
+#define NOT_FOUND 0xFFFFFFFF
+
 /*  Mixer
     There is a stereo summing mixer with one stereo channel strip per chain
     Each channel strip is identified by the associated chain index
@@ -96,13 +101,13 @@ float getPeakHold(int channel, int leg);
 *   @param  callback Pointer to callback function
 *   @param  parameters Bitmask flag indication of parameters to monitor [0:Fader, 1:Mute, 2:Solo, 4:Mono, 8:Peak Audio, 16:Peak Hold] (Default: All)
 */
-void registerMixer(void* callback, uint32_t parameters=0xFFFFFFFF);
+void registerMixer(void* callback, uint32_t parameters=ALL);
 
 /** @brief  Unregister a callback for mixer state changes
 *   @param  callback Pointer to callback function
 *   @param  parmeters Bitmask flag indication of parameters to unregister [0:Fader, 1:Mute, 2:Solo, 4:Mono, 8:Peak Audio, 16:Peak Hold] (Default: All) (Default: All)
 */
-void unregisterMixer(void* callback, uint32_t parameters=0xFFFFFFFF);
+void unregisterMixer(void* callback, uint32_t parameters=ALL);
 
 /*  Chains
     A chain is a set of engines with audio and control signal interlinks
@@ -209,7 +214,7 @@ int8_t getChainTranspose(uint16_t chain);
 void setChainTranspose(uint16_t chain, int8_t transpose);
 
 /** @brief  Get quantity of engines in a chain
-*   @param  chain Index of chain (0xFFFFFFFF for all chains, i.e. all instantiated engines)
+*   @param  chain Index of chain (ALL for all chains, i.e. all instantiated engines)
 *   @retval uint32_t Quantity of engines in chain
 */
 uint32_t getEngineCount(uint16_t chain);
@@ -232,6 +237,7 @@ uint8_t getChainColumns(uint16_t chain);
 *   @param  col Horizontal position of engine within chain graph
 *   @retval uint32_t Id of engine
 *   @note   Id is chain << 16 | col << 8 | row
+*   @note   Physical inputs and outputs use engine id PHY_IN and PHY_OUT
 */
 uint32_t getEngine(uint16_t chain, uint8_t row, uint8_t column);
 
@@ -246,7 +252,7 @@ void removeEngine(uint32_t engine);
 *   @param  row Vertical position of engine within chain graph
 *   @param  col Horizontal position of engine within chain graph
 *   @param  class Name of engine class being added
-*   @retval uint32_t Id of engine or 0xFFFFFFFF if engine cannot be instantiated
+*   @retval uint32_t Id of engine or NOT_FOUND if engine cannot be instantiated
 *   @note   Engine instance is instantiated with default parameters and connected to adjacent horizontal slots
 *   @note   Replaces and destroys any existing engine at same location in graph
 *   @note   Use special classes JOIN_INPUT, JOIN_OUTPUT, JOIN_BOTH to connect input / output of horizontally adjacent slots to vertically adjacent slots
@@ -564,7 +570,6 @@ string getEngineClassBankName(string class, uint32_t bank);
 *   @param  class Name of engine class
 *   @param  bank Index of bank
 *   @param  name New name for bank
-*   @todo   Should it be permissible to rename banks? Could this break engines / snapshots?
 */
 void setEngineClassBankName(string class, uint32_t bank, string name);
 
@@ -747,7 +752,7 @@ int getEngineClassParameterEnumInt(string class, uint32_t parameter, uint32_t en
 /*  Routing Graph
     Audio and MIDI routing is handled by jack
     CV routing is handled by Zynthian core
-    Quantity of engines can be obtained by calling getEngines(0xFFFFFFFF)
+    Quantity of engines can be obtained by calling getEngines(ALL)
     Quantity of engine inputs can be obtained by calling getEngineClassInputCount()
     Quantity of engine outputs can be obtained by calling getEngineClassOutputCount()
     Exposed via API to allow CRUD on jack and CV routing by clients
@@ -758,16 +763,16 @@ int getEngineClassParameterEnumInt(string class, uint32_t parameter, uint32_t en
 *   @param  types Bitmask of signal type [1:Audio, 2:MIDI, 3:CV]
 *   @retval uint32_t Quantity of routes in graph
 */
-uint32_t getGraphRoutes(uint32_t types=0xFFFFFFFF);
+uint32_t getGraphRoutes(uint32_t types=ALL);
 
 /** @brief  Get engine connected to route
 *   @param  route Index of route
 *   @param  destination True if node is destination of route
-*   @param  types Bitmask of signal type [1:Audio, 2:MIDI, 3:CV] (Default: All)
-*   @retval uint32_t Id of engine (0xFFFFFFFF if route id is invalid)
+*   @param  types Bitmask of signal type [1:Audio, 2:MIDI, 3:CV] (Default: ALL)
+*   @retval uint32_t Id of engine (NOT_FOUND if route id is invalid)
 *   @note   Can iterate over same index range provided by getGraphRoutes with same types
 */
-uint32_t getGraphEngineA(uint32_t route, bool destination, uint32_t types=0xFFFFFFFF);
+uint32_t getGraphEngine(uint32_t route, bool destination, uint32_t types=ALL);
 
 /** @brief  Add an interconnect to routing graph
 *   @param  source Id of source engine
@@ -775,16 +780,16 @@ uint32_t getGraphEngineA(uint32_t route, bool destination, uint32_t types=0xFFFF
 *   @param  destination Id of destination engine
 *   @param  input Index of destination engine input
 *   @retval bool True on success
-*   @todo   Define physical inputs and outputs
+*   @note   Physical inputs and outputs use engine id PHY_IN and PHY_OUT
 */
 bool addRoute(uint32_t source, uint32_t output, uint32_t destination, uint32_t input);
 
 /** @brief  Remove an interconnect from routing graph
 *   @param  route Index of route
-*   @param  types Bitmask of signal type [1:Audio, 2:MIDI, 3:CV] (Default: All)
+*   @param  types Bitmask of signal type [1:Audio, 2:MIDI, 3:CV] (Default: ALL)
 *   @note   Index is relevant to types
 */
-void removeRoute(uint32_t route, uint32_t types=0xFFFFFFFF);
+void removeRoute(uint32_t route, uint32_t types=ALL);
 
 /** @brief  Remove an interconnect from routing graph
 *   @param  source Id of source engine
@@ -875,15 +880,15 @@ bool isSwitchClosed(uint32_t switch);
 
 /** @brief  Register switch change
 *   @param  callback Pointer to callback function (uint32_t switch, bool state)
-*   @param  switch Index of switch (Default: All)
+*   @param  switch Index of switch (Default: ALL)
 */
-void registerSwitch(void* callback, uint32_t switch=0xFFFFFFFF);
+void registerSwitch(void* callback, uint32_t switch=ALL);
 
 /** @brief  Unregister switch change
 *   @param  callback Pointer to callback function
-*   @param  switch Index of switch (Default: All)
+*   @param  switch Index of switch (Default: ALL)
 */
-void unregisterSwitch(void* callback, uint32_t switch=0xFFFFFFFF);
+void unregisterSwitch(void* callback, uint32_t switch=ALL);
 
 /** @brief  Assign a MIDI command to a UI switch
 *   @param  switch Index of switch
@@ -933,15 +938,15 @@ int zynpotSetValue(uint8_t zynpot, int32_t value, bool send);
 
 /** @brief  Register zynpot change
 *   @param  callback Pointer to callback function (uint32_t zynpot, int value)
-*   @param  zynpot Index of zynpot (Default: All)
+*   @param  zynpot Index of zynpot (Default: ALL)
 */
-void registerZynpot(void* callback, uint32_t zynpot = 0xFFFFFFFF);
+void registerZynpot(void* callback, uint32_t zynpot = ALL);
 
 /** @brief  Unregister zynpot change
 *   @param  callback Pointer to callback function
-*   @param  zynpot Index of zynpot (Default: All)
+*   @param  zynpot Index of zynpot (Default: ALL)
 */
-void unregisterZynpot(void* callback, uint32_t zynpot = 0xFFFFFFFF);
+void unregisterZynpot(void* callback, uint32_t zynpot = ALL);
 
 //!@todo   Document getZynpotFlag
 uint8_t get_value_flag_zynpot(uint8_t zynpot);
