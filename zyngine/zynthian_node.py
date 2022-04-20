@@ -2,7 +2,7 @@
 #******************************************************************************
 # ZYNTHIAN PROJECT: Zynthian Node (zynthian_node)
 #
-# a zynthian node is an engine instance inside a chain
+# a node is an engine instance
 #
 # Copyright (C) 2015-2022 Fernando Moyano <jofemodo@zynthian.org>
 #
@@ -49,10 +49,9 @@ class zynthian_node:
 	# ---------------------------------------------------------------------------
 
 
-	def __init__(self, engine, midi_chan, zyngui=None):
+	def __init__(self, engine, zyngui=None):
 		self.zyngui = zyngui
 		self.engine = engine
-		self.midi_chan = midi_chan
 
 		self.jackname = None
 		self.audio_out = ["system:playback_1", "system:playback_2"]
