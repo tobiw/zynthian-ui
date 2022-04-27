@@ -1028,7 +1028,6 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 			elif t == "B":
 				if isinstance(self.selected_layer, zyngine.zynthian_layer):
 					# Layer Options
-					self.zyngui.screens['layer'].select(self.selected_chain_index)
 					self.zyngui.screens['layer_options'].reset()
 					self.zyngui.show_screen('layer_options')
 				return True
