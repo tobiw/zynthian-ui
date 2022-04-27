@@ -633,7 +633,7 @@ class zynthian_gui:
 		exclude_obj = self.screens[exclude]
 
 		for screen_name, screen_obj in self.screens.items():
-			if screen_obj!=exclude_obj:
+			if screen_obj!=exclude_obj and hasattr(screen_obj, 'hide'): #TODO: Remove attr check when GUI elements removed from screens
 				screen_obj.hide()
 
 

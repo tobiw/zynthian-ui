@@ -43,9 +43,10 @@ from zyngui.zynthian_gui_selector import zynthian_gui_selector
 # Zynthian Layer Selection GUI Class
 #------------------------------------------------------------------------------
 
-class zynthian_gui_layer(zynthian_gui_selector):
+class zynthian_gui_layer():
 
 	def __init__(self):
+		self.zyngui = zynthian_gui_config.zyngui
 		self.layers = []
 		self.root_layers = []
 		self.amixer_layer = None
@@ -54,7 +55,6 @@ class zynthian_gui_layer(zynthian_gui_selector):
 		self.layer_chain_parallel = False
 		self.last_snapshot_fpath = None
 		self.last_zs3_index = [0] * 16; # Last selected ZS3 snapshot, per MIDI channel
-		super().__init__('Layer', True)
 		self.create_amixer_layer()
 
 
@@ -67,67 +67,6 @@ class zynthian_gui_layer(zynthian_gui_selector):
 		self.reset_note_range()
 		self.remove_all_layers(True)
 		self.reset_midi_profile()
-
-
-	def fill_list(self):
-		self.list_data=[]
-
-		# Get list of root layers
-		self.root_layers=self.get_fxchain_roots()
-
-		for i,layer in enumerate(self.root_layers):
-			self.list_data.append((str(i+1),i,layer.get_presetpath()))
-
-		# Add separator
-		if len(self.root_layers)>0:
-			self.list_data.append((None,len(self.list_data),"-----------------------------"))
-
-		# Add fixed entries
-		self.list_data.append(('NEW_SYNTH',len(self.list_data),"NEW Synth Layer"))
-		self.list_data.append(('NEW_AUDIO_FX',len(self.list_data),"NEW Audio-FX Layer"))
-		self.list_data.append(('NEW_MIDI_FX',len(self.list_data),"NEW MIDI-FX Layer"))
-		self.list_data.append(('NEW_GENERATOR',len(self.list_data),"NEW Generator Layer"))
-		self.list_data.append(('NEW_SPECIAL',len(self.list_data),"NEW Special Layer"))
-		self.list_data.append(('RESET',len(self.list_data),"REMOVE All Layers"))
-		self.list_data.append((None,len(self.list_data),"-----------------------------"))
-		self.list_data.append(('ALL_OFF',len(self.list_data),"PANIC! All Notes Off"))
-
-		super().fill_list()
-
-
-	def select_action(self, i, t='S'):
-		self.index = i
-
-		if self.list_data[i][0] is None:
-			pass
-
-		elif self.list_data[i][0]=='NEW_SYNTH':
-			self.add_layer("MIDI Synth")
-
-		elif self.list_data[i][0]=='NEW_AUDIO_FX':
-			self.add_layer("Audio Effect")
-
-		elif self.list_data[i][0]=='NEW_MIDI_FX':
-			self.add_layer("MIDI Tool")
-
-		elif self.list_data[i][0]=='NEW_GENERATOR':
-			self.add_layer("Audio Generator")
-
-		elif self.list_data[i][0]=='NEW_SPECIAL':
-			self.add_layer("Special")
-
-		elif self.list_data[i][0]=='RESET':
-			self.zyngui.show_confirm("Do you really want to remove all layers?", self.reset_confirmed)
-
-		elif self.list_data[i][0]=='ALL_OFF':
-			self.zyngui.callable_ui_action("ALL_OFF")
-
-		else:
-			if t=='S':
-				self.layer_control()
-
-			elif t=='B':
-				self.layer_options()
 
 
 	def reset_confirmed(self, params=None):
@@ -389,7 +328,7 @@ class zynthian_gui_layer(zynthian_gui_selector):
 			self.zyngui.zynautoconnect()
 
 			if select:
-				self.fill_list()
+#				self.fill_list()
 				root_layer = self.get_fxchain_root(layer)
 				try:
 					self.index = self.root_layers.index(root_layer)
@@ -474,20 +413,6 @@ class zynthian_gui_layer(zynthian_gui_selector):
 			if stop_unused_engines:
 				self.zyngui.screens['engine'].stop_unused_engines()
 
-			# Recalculate selector and root_layers list
-			self.fill_list()
-
-			try:
-				self.index = self.root_layers.index(self.zyngui.curlayer)
-			except:
-				self.index=0
-				try:
-					self.zyngui.set_curlayer(self.root_layers[self.index])
-				except:
-					self.zyngui.set_curlayer(None)
-
-			self.set_selector()
-
 
 	def remove_all_layers(self, stop_engines=True):
 		# Remove all layers: Step 1 => Drop from FX chain and mute
@@ -518,10 +443,6 @@ class zynthian_gui_layer(zynthian_gui_selector):
 
 		self.index=0
 		self.zyngui.set_curlayer(None)
-
-		# Refresh UI
-		self.fill_list()
-		self.set_selector()
 
 
 	#----------------------------------------------------------------------------
@@ -1405,9 +1326,6 @@ class zynthian_gui_layer(zynthian_gui_selector):
 
 		#Autoconnect Audio
 		self.zyngui.zynautoconnect_audio(True)
-
-		#Fill layer list
-		self.fill_list()
 
 		#Set active layer
 		if snapshot['index']<len(self.layers):
