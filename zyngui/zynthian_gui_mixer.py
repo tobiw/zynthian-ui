@@ -5,8 +5,8 @@
 #
 # Zynthian GUI Audio Mixer
 #
-# Copyright (C) 2015-2020 Fernando Moyano <jofemodo@zynthian.org>
-# Copyright (C) 2015-2021 Brian Walton <brian@riban.co.uk>
+# Copyright (C) 2015-2022 Fernando Moyano <jofemodo@zynthian.org>
+# Copyright (C) 2015-2022 Brian Walton <brian@riban.co.uk>
 #
 #******************************************************************************
 #
@@ -24,18 +24,20 @@
 #
 #******************************************************************************
 
-import sys
-import logging
-import tkinter
-from time import monotonic
-from tkinter import font as tkFont
-from PIL import Image, ImageTk
-import liblo
 import os
+import sys
+import copy
+import liblo
+import tkinter
+import logging
+from time import monotonic
+from PIL import Image, ImageTk
+from tkinter import font as tkFont
+from collections import OrderedDict
 
 # Zynthian specific modules
-from zyngine import zynthian_controller
 import zyngine
+from zyngine import zynthian_controller
 from . import zynthian_gui_base
 from . import zynthian_gui_config
 from . import zynthian_gui_controller
@@ -47,15 +49,19 @@ ENC_BACK		= 1
 ENC_SNAPSHOT	= 2
 ENC_SELECT		= 3
 
-MAX_NUM_CHANNELS = 16
+MAX_NUM_CHANNELS = 17
+MAIN_CHANNEL_INDEX = 256
 
 #------------------------------------------------------------------------------
 # Zynthian Main Mixbus Layer Class
 # This is a dummy class to provide a stub for the main mixbus strip's layer
 #------------------------------------------------------------------------------
+
 class zynthian_gui_mixer_main_layer():
 	def __init__(self):
-		self.midi_chan = MAX_NUM_CHANNELS
+		self.engine = None
+		self.midi_chan = MAIN_CHANNEL_INDEX
+		self.status = ""
 
 
 #------------------------------------------------------------------------------
@@ -64,9 +70,6 @@ class zynthian_gui_mixer_main_layer():
 #------------------------------------------------------------------------------
 
 class zynthian_gui_mixer_strip():
-
-	mute_color = zynthian_gui_config.color_on
-	solo_color = "dark green"
 
 	# Initialise mixer strip object
 	#	parent: Parent object
@@ -88,7 +91,7 @@ class zynthian_gui_mixer_strip():
 		if not layer:
 			self.hidden = True
 
-		self.button_height = int(self.height * 0.1)
+		self.button_height = int(self.height * 0.07)
 		self.legend_height = int(self.height * 0.08)
 		self.balance_height = int(self.height * 0.03)
 		self.fader_height = self.height - self.balance_height - self.legend_height - 2 * self.button_height
@@ -109,36 +112,47 @@ class zynthian_gui_mixer_strip():
 		self.dpm_scale_lh = int(self.dpm_over * self.fader_height)
 
 		self.dpm_width = int(self.width / 10)
-		self.dpm_a_x = x + self.width - self.dpm_width * 2 - 2
+		self.dpm_a_x = int(x + self.width - self.dpm_width * 2 - 2)
 		self.dpm_a_y = self.fader_bottom
 		self.dpm_b_x = x + self.width - self.dpm_width - 1
 		self.dpm_b_y = self.fader_bottom
-		self.dpm_zero_y = self.fader_bottom - self.fader_height * self.dpm_high
+		self.dpm_zero_y = int(self.fader_bottom - self.fader_height * self.dpm_high)
 		self.fader_width = self.width - self.dpm_width * 2 - 2
 
 		self.fader_drag_start = None
 		self.strip_drag_start = None
 
-
 		# Default style
-		self.fader_bg_color = zynthian_gui_config.color_bg
+		#self.fader_bg_color = zynthian_gui_config.color_bg
+		self.fader_bg_color = zynthian_gui_config.color_panel_bg
+		self.fader_bg_color_hl = "#6a727d" #"#207024"
 		#self.fader_color = zynthian_gui_config.color_panel_hl
 		#self.fader_color_hl = zynthian_gui_config.color_low_on
 		self.fader_color = zynthian_gui_config.color_off
 		self.fader_color_hl = zynthian_gui_config.color_on
 		self.legend_txt_color = zynthian_gui_config.color_tx
+		self.legend_bg_color = zynthian_gui_config.color_panel_bg
+		self.legend_bg_color_hl = zynthian_gui_config.color_on
 		self.button_bgcol = zynthian_gui_config.color_panel_bg
 		self.button_txcol = zynthian_gui_config.color_tx
-		self.left_color = "red"
-		self.right_color = "dark green"
-		self.low_color = "dark green"
-		self.medium_color = "#AAAA00" # yellow
-		self.high_color = "dark red"
+		self.left_color = "#00AA00"
+		self.right_color = "#00EE00"
+		self.low_color = "#00AA00"
+		self.medium_color = "#CCCC00" # yellow
+		self.high_color = "#CC0000"
+		self.dpm_hold_color = self.low_color
+
+		self.mute_color = zynthian_gui_config.color_on #"#3090F0"
+		self.solo_color = "#D0D000"
+		self.mono_color = "#B0B0B0"
 
 		#font_size = int(0.5 * self.legend_height)
 		font_size = int(0.25 * self.width)
 		font = (zynthian_gui_config.font_family, font_size)
-		font_fader = (zynthian_gui_config.font_family, font_size-1)
+		font_fader = (zynthian_gui_config.font_family, int(0.9 * font_size))
+		font_icons = ("forkawesome", int(0.3 * self.width))
+
+		self.fader_text_len = int(1.1 * self.fader_height / font_size)
 
 		'''
 		Create GUI elements
@@ -155,12 +169,14 @@ class zynthian_gui_mixer_strip():
 		self.legend = self.parent.main_canvas.create_text(x, self.fader_bottom - 2, fill=self.legend_txt_color, text="", tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg)), angle=90, anchor="nw", font=font_fader)
 
 		# DPM
-		self.dpm_h_a = self.parent.main_canvas.create_rectangle(x + self.width - 8, self.fader_bottom, x + self.width - 5, self.fader_bottom, width=0, fill=self.high_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
-		self.dpm_m_a = self.parent.main_canvas.create_rectangle(x + self.width - 8, self.fader_bottom, x + self.width - 5, self.fader_bottom, width=0, fill=self.medium_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
-		self.dpm_l_a = self.parent.main_canvas.create_rectangle(x + self.width - 8, self.fader_bottom, x + self.width - 5, self.fader_bottom, width=0, fill=self.low_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
-		self.dpm_h_b = self.parent.main_canvas.create_rectangle(x + self.width - 4, self.fader_bottom, x + self.width - 1, self.fader_bottom, width=0, fill=self.high_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
-		self.dpm_m_b = self.parent.main_canvas.create_rectangle(x + self.width - 4, self.fader_bottom, x + self.width - 1, self.fader_bottom, width=0, fill=self.medium_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
-		self.dpm_l_b = self.parent.main_canvas.create_rectangle(x + self.width - 4, self.fader_bottom, x + self.width - 1, self.fader_bottom, width=0, fill=self.low_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
+		self.dpm_h_a = self.parent.main_canvas.create_rectangle(self.dpm_a_x, self.fader_top, self.dpm_a_x + self.dpm_width, self.dpm_a_y - self.dpm_scale_lh, width=0, fill=self.high_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg), "dpm"))
+		self.dpm_m_a = self.parent.main_canvas.create_rectangle(self.dpm_a_x, self.dpm_a_y - self.dpm_scale_lh, self.dpm_a_x + self.dpm_width, self.dpm_a_y - self.dpm_scale_lm, width=0, fill=self.medium_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg), "dpm"))
+		self.dpm_l_a = self.parent.main_canvas.create_rectangle(self.dpm_a_x, self.dpm_a_y - self.dpm_scale_lm, self.dpm_a_x + self.dpm_width,  self.fader_bottom, width=0, fill=self.low_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg), "dpm"))
+		self.dpm_b_a = self.parent.main_canvas.create_rectangle(self.dpm_a_x, self.fader_bottom, self.dpm_a_x + self.dpm_width, self.fader_top, width=0, fill=self.fader_bg_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg), "dpm"))
+		self.dpm_h_b = self.parent.main_canvas.create_rectangle(self.dpm_b_x, self.fader_top, self.dpm_b_x + self.dpm_width, self.dpm_b_y - self.dpm_scale_lh, width=0, fill=self.high_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg), "dpm"))
+		self.dpm_m_b = self.parent.main_canvas.create_rectangle(self.dpm_b_x, self.dpm_b_y - self.dpm_scale_lh, self.dpm_b_x + self.dpm_width, self.dpm_b_y - self.dpm_scale_lm, width=0, fill=self.medium_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg), "dpm"))
+		self.dpm_l_b = self.parent.main_canvas.create_rectangle(self.dpm_b_x, self.dpm_b_y - self.dpm_scale_lm, self.dpm_b_x + self.dpm_width,  self.fader_bottom, width=0, fill=self.low_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg), "dpm"))
+		self.dpm_b_b = self.parent.main_canvas.create_rectangle(self.dpm_b_x, self.fader_bottom, self.dpm_b_x + self.dpm_width, self.fader_top, width=0, fill=self.fader_bg_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg), "dpm"))
 		self.dpm_hold_a = self.parent.main_canvas.create_rectangle(self.dpm_a_x, self.fader_bottom, self.dpm_a_x + self.dpm_width, self.fader_bottom, width=0, fill=self.low_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)), state="hidden")
 		self.dpm_hold_b = self.parent.main_canvas.create_rectangle(self.dpm_b_x, self.fader_bottom, self.dpm_b_x + self.dpm_width, self.fader_bottom, width=0, fill=self.low_color, tags=("fader:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)), state="hidden")
 
@@ -169,19 +185,22 @@ class zynthian_gui_mixer_strip():
 
 		# Solo button
 		self.solo = self.parent.main_canvas.create_rectangle(x, 0, x + self.width, self.button_height, fill=self.button_bgcol, width=0, tags=("solo_button:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
-		self.parent.main_canvas.create_text(x + self.width / 2, self.button_height * 0.5, text="solo", fill=self.button_txcol, tags=("solo_button:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)), font=font)
+		self.solo_text = self.parent.main_canvas.create_text(x + self.width / 2, self.button_height * 0.5, text="S", fill=self.button_txcol, tags=("solo_button:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)), font=font)
 
 		# Mute button
 		self.mute = self.parent.main_canvas.create_rectangle(x, self.button_height, x + self.width, self.button_height * 2, fill=self.button_bgcol, width=0, tags=("mute_button:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
-		self.parent.main_canvas.create_text(x + self.width / 2, self.button_height * 1.5, text="mute", fill=self.button_txcol, tags=("mute_button:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)), font=font)
+		self.mute_text = self.parent.main_canvas.create_text(x + self.width / 2, self.button_height * 1.5, text="M", fill=self.button_txcol, tags=("mute_button:%s"%(self.fader_bg), "strip:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)), font=font_icons)
 
 		# Legend strip at bottom of screen
-		self.legend_strip_bg = self.parent.main_canvas.create_rectangle(x, self.height - self.legend_height, x + self.width, self.height, width=0, tags=("strip:%s"%(self.fader_bg),"legend_strip:%s"%(self.fader_bg)))
+		self.legend_strip_bg = self.parent.main_canvas.create_rectangle(x, self.height - self.legend_height, x + self.width, self.height, width=0, tags=("strip:%s"%(self.fader_bg),"legend_strip:%s"%(self.fader_bg)), fill=self.legend_bg_color)
 		self.legend_strip_txt = self.parent.main_canvas.create_text(int(fader_centre), self.height - self.legend_height / 2, fill=self.legend_txt_color, text="-", tags=("strip:%s"%(self.fader_bg),"legend_strip:%s"%(self.fader_bg)), font=font)
 
 		# Balance indicator
-		self.balance_left = self.parent.main_canvas.create_rectangle(x, self.fader_top, int(fader_centre - 0.5), self.fader_top + self.balance_height, fill=self.left_color, width=0, tags=("strip:%s"%(self.fader_bg), "balance:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
-		self.balance_right = self.parent.main_canvas.create_rectangle(int(fader_centre + 0.5), self.fader_top, self.width, self.fader_top + self.balance_height , fill=self.right_color, width=0, tags=("strip:%s"%(self.fader_bg), "balance:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
+		self.balance_left = self.parent.main_canvas.create_rectangle(x, self.balance_top, int(fader_centre - 0.5), self.balance_top + self.balance_height, fill=self.left_color, width=0, tags=("strip:%s"%(self.fader_bg), "balance:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
+		self.balance_right = self.parent.main_canvas.create_rectangle(int(fader_centre + 0.5), self.balance_top, self.width, self.balance_top + self.balance_height , fill=self.right_color, width=0, tags=("strip:%s"%(self.fader_bg), "balance:%s"%(self.fader_bg), "audio_strip:%s"%(self.fader_bg)))
+
+		# Fader indicators
+		self.indicator = self.parent.main_canvas.create_text(x + 2, self.fader_top + 2, fill="#009000", anchor="nw")
 
 		self.parent.main_canvas.tag_bind("fader:%s"%(self.fader_bg), "<ButtonPress-1>", self.on_fader_press)
 		self.parent.main_canvas.tag_bind("fader:%s"%(self.fader_bg), "<B1-Motion>", self.on_fader_motion)
@@ -219,6 +238,24 @@ class zynthian_gui_mixer_strip():
 		self.draw()
 
 
+	def get_legend_text(self, default_text=None):
+		if self.layer.engine is not None:
+			res1 = self.layer.engine.get_name(self.layer) + "\n"
+			res2 = ""
+			# MOD-UI
+			if self.layer.midi_chan is None:
+				if self.layer.bank_name:
+					res2 = self.layer.bank_name
+			# Rest of chains
+			elif self.layer.preset_name:
+				res2 = self.layer.preset_name
+			# Limit text len
+			if len(res2)>self.fader_text_len:
+				res2 = res2[0:self.fader_text_len]
+			return res1+res2
+		return default_text
+
+
 	# Function to draw mixer strip
 	def draw(self):
 		if self.hidden or self.layer is None:
@@ -226,98 +263,68 @@ class zynthian_gui_mixer_strip():
 
 		self.parent.main_canvas.itemconfig(self.legend, text="")
 		self.parent.main_canvas.coords(self.fader_bg_color, self.x, self.fader_top, self.x + self.width, self.fader_bottom)
-		if isinstance(self.layer,  zynthian_gui_mixer_main_layer):
+		if self.layer.midi_chan==MAIN_CHANNEL_INDEX:
 			self.parent.main_canvas.itemconfig(self.legend_strip_txt, text="Main")
-			self.parent.main_canvas.itemconfig(self.legend, text="Main")
+			self.parent.main_canvas.itemconfig(self.legend, text=self.get_legend_text("NoFX"), state="normal")
 		else:
-			self.parent.main_canvas.itemconfig(self.legend_strip_txt, text=self.layer.midi_chan + 1)
-			self.parent.main_canvas.itemconfig(self.legend, text="%s\n%s"%(self.layer.engine.get_name(self.layer), self.layer.preset_name), state="normal")
+			if isinstance(self.layer.midi_chan, int):
+				strip_txt = str(self.layer.midi_chan + 1)
+			else:
+				strip_txt = "X"
+			self.parent.main_canvas.itemconfig(self.legend_strip_txt, text=strip_txt)
+			self.parent.main_canvas.itemconfig(self.legend, text=self.get_legend_text("None"), state="normal")
 
 		try:
-			if self.layer.engine.type == "MIDI Tool":
+			if self.layer.engine and self.layer.engine.type == "MIDI Tool" or self.layer.midi_chan is None:
 				return
-		except:
-			pass
+		except Exception as e:
+			logging.error(e)
 
 		self.draw_dpm()
 		self.draw_controls()
 
+		if self.parent.zyngui.audio_recorder.is_primed(self.layer.midi_chan):
+			self.parent.main_canvas.itemconfig(self.indicator, text="{}\uf111".format(self.layer.status), fill=self.high_color)
+		else:
+			self.parent.main_canvas.itemconfig(self.indicator, text=self.layer.status, fill="#009000")
+	
 
 	# Function to draw the DPM level meter for a mixer strip
 	def draw_dpm(self):
 		if self.hidden or self.layer.midi_chan is None:
 			return
 
-		# Set color
-		if zynmixer.get_mono(self.layer.midi_chan):
-			self.parent.main_canvas.itemconfig(self.dpm_l_a, fill="gray80")
-			self.parent.main_canvas.itemconfig(self.dpm_l_b, fill="gray80")
-		else:
-			self.parent.main_canvas.itemconfig(self.dpm_l_a, fill=self.low_color)
-			self.parent.main_canvas.itemconfig(self.dpm_l_b, fill=self.low_color)
 		# Get audio peaks from zynmixer
 		signal = max(0, 1 + zynmixer.get_dpm(self.layer.midi_chan,0) / self.dpm_rangedB)
-		llA = int(min(signal, self.dpm_high) * self.fader_height)
-		lmA = int(min(signal, self.dpm_over) * self.fader_height)
-		lhA = int(min(signal, 1) * self.fader_height)
+		level_a = int((1 - signal) * self.fader_height)
 		signal = max(0, 1 + zynmixer.get_dpm(self.layer.midi_chan,1) / self.dpm_rangedB)
-		llB = int(min(signal, self.dpm_high) * self.fader_height)
-		lmB = int(min(signal, self.dpm_over) * self.fader_height)
-		lhB = int(min(signal, 1) * self.fader_height)
+		level_b = int((1 - signal) * self.fader_height)
 		signal = max(0, 1 + zynmixer.get_dpm_hold(self.layer.midi_chan,0) / self.dpm_rangedB)
-		lholdA = int(min(signal, 1) * self.fader_height)
+		hold_a = int(min(signal, 1) * self.fader_height)
 		signal = max(0, 1 + zynmixer.get_dpm_hold(self.layer.midi_chan,1) / self.dpm_rangedB)
-		lholdB = int(min(signal, 1) * self.fader_height)
+		hold_b = int(min(signal, 1) * self.fader_height)
 
 		# Draw left meter
-		self.parent.main_canvas.coords(self.dpm_l_a,(self.dpm_a_x, self.dpm_a_y, self.dpm_a_x + self.dpm_width, self.dpm_a_y - llA))
-		self.parent.main_canvas.itemconfig(self.dpm_l_a, state='normal')
-
-		if lmA >= self.dpm_scale_lm:
-			self.parent.main_canvas.coords(self.dpm_m_a,(self.dpm_a_x, self.dpm_a_y - self.dpm_scale_lm, self.dpm_a_x + self.dpm_width, self.dpm_a_y - lmA))
-			self.parent.main_canvas.itemconfig(self.dpm_m_a, state="normal")
-		else:
-			self.parent.main_canvas.itemconfig(self.dpm_m_a, state="hidden")
-
-		if lhA >= self.dpm_scale_lh:
-			self.parent.main_canvas.coords(self.dpm_h_a,(self.dpm_a_x, self.dpm_a_y - self.dpm_scale_lh, self.dpm_a_x + self.dpm_width, self.dpm_a_y - lhA))
-			self.parent.main_canvas.itemconfig(self.dpm_h_a, state="normal")
-		else:
-			self.parent.main_canvas.itemconfig(self.dpm_h_a, state="hidden")
-
-		self.parent.main_canvas.coords(self.dpm_hold_a,(self.dpm_a_x, self.dpm_a_y - lholdA, self.dpm_a_x + self.dpm_width, self.dpm_a_y - lholdA - 1))
-		if lholdA >= self.dpm_scale_lh:
+		self.parent.main_canvas.coords(self.dpm_b_a, (self.dpm_a_x, self.fader_top, self.dpm_a_x + self.dpm_width, self.fader_top + level_a))
+		self.parent.main_canvas.coords(self.dpm_hold_a, (self.dpm_a_x, self.dpm_a_y - hold_a, self.dpm_a_x + self.dpm_width, self.dpm_a_y - hold_a - 1))
+		if hold_a >= self.dpm_scale_lh:
 			self.parent.main_canvas.itemconfig(self.dpm_hold_a, state="normal", fill="#FF0000")
-		elif lholdA >= self.dpm_scale_lm:
+		elif hold_a >= self.dpm_scale_lm:
 			self.parent.main_canvas.itemconfig(self.dpm_hold_a, state="normal", fill="#FFFF00")
-		elif lholdA > 0:
-			self.parent.main_canvas.itemconfig(self.dpm_hold_a, state="normal", fill="#00FF00")
+		elif hold_a > 0:
+			self.parent.main_canvas.itemconfig(self.dpm_hold_a, state="normal", fill=self.dpm_hold_color)
 		else:
 			self.parent.main_canvas.itemconfig(self.dpm_hold_a, state="hidden")
 
 		# Draw right meter
-		self.parent.main_canvas.coords(self.dpm_l_b,(self.dpm_b_x, self.dpm_b_y, self.dpm_b_x + self.dpm_width, self.dpm_b_y - llB))
-		self.parent.main_canvas.itemconfig(self.dpm_l_b, state='normal')
-
-		if lmB >= self.dpm_scale_lm:
-			self.parent.main_canvas.coords(self.dpm_m_b,(self.dpm_b_x, self.dpm_b_y - self.dpm_scale_lm, self.dpm_b_x + self.dpm_width, self.dpm_b_y - lmB))
-			self.parent.main_canvas.itemconfig(self.dpm_m_b, state="normal")
-		else:
-			self.parent.main_canvas.itemconfig(self.dpm_m_b, state="hidden")
-
-		if lhB >= self.dpm_scale_lh:
-			self.parent.main_canvas.coords(self.dpm_h_b,(self.dpm_b_x, self.dpm_b_y - self.dpm_scale_lh, self.dpm_b_x + self.dpm_width, self.dpm_b_y - lhB))
-			self.parent.main_canvas.itemconfig(self.dpm_h_b, state="normal")
-		else:
-			self.parent.main_canvas.itemconfig(self.dpm_h_b, state="hidden")
-
-		self.parent.main_canvas.coords(self.dpm_hold_b,(self.dpm_b_x, self.dpm_b_y - lholdB, self.dpm_b_x + self.dpm_width, self.dpm_b_y - lholdB - 1))
-		if lholdB >= self.dpm_scale_lh:
+		self.parent.main_canvas.coords(self.dpm_b_b, (self.dpm_b_x, self.fader_top, self.dpm_b_x + self.dpm_width, self.fader_top + level_b))
+		self.parent.main_canvas.coords(self.dpm_hold_b, (self.dpm_b_x, self.dpm_b_y - hold_b, self.dpm_b_x + self.dpm_width, self.dpm_b_y - hold_b - 1))
+		if hold_b >= self.dpm_scale_lh:
 			self.parent.main_canvas.itemconfig(self.dpm_hold_b, state="normal", fill="#FF0000")
-		elif lholdB >= self.dpm_scale_lm:
+		elif hold_b >= self.dpm_scale_lm:
 			self.parent.main_canvas.itemconfig(self.dpm_hold_b, state="normal", fill="#FFFF00")
-		elif lholdB > 0:
-			self.parent.main_canvas.itemconfig(self.dpm_hold_b, state="normal", fill="#00FF00")
+		elif hold_b > 0:
+			self.parent.main_canvas.itemconfig(self.dpm_hold_b, state="normal", fill=self.dpm_hold_color)
 		else:
 			self.parent.main_canvas.itemconfig(self.dpm_hold_b, state="hidden")
 
@@ -329,14 +336,26 @@ class zynthian_gui_mixer_strip():
 
 		self.parent.main_canvas.coords(self.fader, self.x, self.fader_top + self.fader_height * (1 - zynmixer.get_level(self.layer.midi_chan)), self.x + self.fader_width, self.fader_bottom)
 
-		color = self.button_bgcol
 		if zynmixer.get_mute(self.layer.midi_chan):
-			color = self.mute_color
-		self.parent.main_canvas.itemconfig(self.mute, fill=color)
-		color = self.button_bgcol
+			self.parent.main_canvas.itemconfig(self.mute, fill=self.mute_color)
+			self.parent.main_canvas.itemconfig(self.mute_text, text="\uf32f") #f6a9
+		else:
+			self.parent.main_canvas.itemconfig(self.mute, fill=self.button_bgcol)
+			self.parent.main_canvas.itemconfig(self.mute_text, text="\uf028")
+			
 		if zynmixer.get_solo(self.layer.midi_chan):
-			color = self.solo_color
-		self.parent.main_canvas.itemconfig(self.solo, fill=color)
+			self.parent.main_canvas.itemconfig(self.solo, fill=self.solo_color)
+		else:
+			self.parent.main_canvas.itemconfig(self.solo, fill=self.button_bgcol)
+
+		if zynmixer.get_mono(self.layer.midi_chan):
+			self.parent.main_canvas.itemconfig(self.dpm_l_a, fill=self.mono_color)
+			self.parent.main_canvas.itemconfig(self.dpm_l_b, fill=self.mono_color)
+			self.dpm_hold_color = "#FFFFFF"
+		else:
+			self.parent.main_canvas.itemconfig(self.dpm_l_a, fill=self.low_color)
+			self.parent.main_canvas.itemconfig(self.dpm_l_b, fill=self.low_color)
+			self.dpm_hold_color = "#00FF00"
 
 		balance = zynmixer.get_balance(self.layer.midi_chan)
 		if balance > 0:
@@ -374,6 +393,17 @@ class zynthian_gui_mixer_strip():
 	# Mixer Strip functionality
 	#--------------------------------------------------------------------------
 
+	# Function to highlight/downlight the strip
+	# hl: Boolean => True=highlight, False=downlight
+	def set_highlight(self, hl=True):
+		if hl:
+			self.set_fader_color(self.fader_bg_color_hl)
+			self.parent.main_canvas.itemconfig(self.legend_strip_bg, fill=self.legend_bg_color_hl)
+		else:
+			self.set_fader_color(self.fader_color)
+			self.parent.main_canvas.itemconfig(self.legend_strip_bg, fill=self.fader_bg_color)
+
+
 	# Function to set fader colors
 	# fg: Fader foreground color
 	# bg: Fader background color (optional - Default: Do not change background color)
@@ -393,7 +423,7 @@ class zynthian_gui_mixer_strip():
 			self.show()
 
 
-	# Function to set volume values
+	# Function to set volume value
 	#	value: Volume value (0..1)
 	def set_volume(self, value):
 		if self.layer is None:
@@ -406,7 +436,14 @@ class zynthian_gui_mixer_strip():
 		self.redraw_controls_flag = True
 
 
-	# Function to set balance values
+	# Function to get volume value
+	def get_volume(self):
+		if self.layer is None:
+			return -1
+		return zynmixer.get_level(self.layer.midi_chan)
+
+
+	# Function to set balance value
 	#	value: Balance value (-1..1)
 	def set_balance(self, value):
 		if self.layer is None:
@@ -417,6 +454,13 @@ class zynthian_gui_mixer_strip():
 			value = 1
 		zynmixer.set_balance(self.layer.midi_chan, value)
 		self.redraw_controls_flag = True
+
+
+	# Function to get balance value
+	def get_balance(self):
+		if self.layer is None:
+			return -1
+		return zynmixer.get_balance(self.layer.midi_chan)
 
 
 	# Function to reset volume
@@ -508,7 +552,6 @@ class zynthian_gui_mixer_strip():
 		self.fader_drag_start = event
 		self.set_volume(level)
 		self.redraw_controls()
-		self.parent.update_zyncoders()
 
 
 	# Function to handle mouse wheel down over fader
@@ -518,7 +561,6 @@ class zynthian_gui_mixer_strip():
 			return
 		self.set_volume(zynmixer.get_level(self.layer.midi_chan) - 0.02)
 		self.redraw_controls()
-		self.parent.update_zyncoders()
 
 
 	# Function to handle mouse wheel up over fader
@@ -528,7 +570,6 @@ class zynthian_gui_mixer_strip():
 			return
 		self.set_volume(zynmixer.get_level(self.layer.midi_chan) + 0.02)
 		self.redraw_controls()
-		self.parent.update_zyncoders()
 
 
 	# Function to handle mouse wheel down over balance
@@ -554,29 +595,27 @@ class zynthian_gui_mixer_strip():
 	def on_strip_press(self, event):
 		if self.layer is None:
 			return
-		if not isinstance(self.layer, zynthian_gui_mixer_main_layer):
-			self.strip_drag_start = event
+		self.strip_drag_start = event
 		self.dragging = False
 
 
 	# Function to handle legend strip release
 	def on_strip_release(self, event):
-		if not self.dragging:
+		if self.dragging:
+			self.dragging = None
+		else:
 			self.parent.select_chain_by_layer(self.layer)
-		if isinstance(self.layer, zynthian_gui_mixer_main_layer):
-			return
-		if self.strip_drag_start:
-			delta = event.time - self.strip_drag_start.time
-			self.strip_drag_start = None
-			if self.dragging:
-				self.dragging = False
-				return
-			if delta > 400:
-				zynthian_gui_config.zyngui.screens['layer_options'].reset()
-				zynthian_gui_config.zyngui.show_screen('layer_options')
-				return
-			else:
-				zynthian_gui_config.zyngui.layer_control(self.layer)
+			if self.strip_drag_start:
+				delta = event.time - self.strip_drag_start.time
+				self.strip_drag_start = None
+				if delta > 400:
+					if isinstance(self.parent.selected_layer, zyngine.zynthian_layer):
+						zynthian_gui_config.zyngui.screens['layer_options'].reset()
+						zynthian_gui_config.zyngui.show_screen('layer_options')
+					else:
+						self.parent.show_mainfx_options()
+				elif isinstance(self.parent.selected_layer, zyngine.zynthian_layer):
+					zynthian_gui_config.zyngui.layer_control(self.layer)
 
 
 	# Function to handle legend strip drag
@@ -619,6 +658,13 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 	def __init__(self):
 		super().__init__()
 
+		self.buttonbar_config = [
+			(0, 'MUTE\n[menu]'),
+			(2, 'SOLO\n[snapshot]'),
+			(1, ''),
+			(3, 'CONTROL\n[options]')
+		]
+
 		# Geometry vars
 		self.width=zynthian_gui_config.display_width
 		self.height=zynthian_gui_config.body_height
@@ -649,6 +695,7 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 		# Arrays of GUI elements for mixer strips - Chains + Main
 		self.visible_mixer_strips = [None] * visible_chains
 		self.selected_chain_index = None
+		self.highlighted_strip = None
 		self.mixer_strip_offset = 0 # Index of first mixer strip displayed on far left
 		self.selected_layer = None
 
@@ -662,16 +709,12 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 			bg = zynthian_gui_config.color_panel_bg)
 		self.main_canvas.grid()
 
-		# Mixer strip selection highlight
-		color_selhl = zynthian_gui_config.color_on
-		self.selection_highlight = self.main_canvas.create_rectangle(0,0,0,0, outline=color_selhl, fill=color_selhl, width=1)
-
 		# Create mixer strip UI objects
 		for chain in range(len(self.visible_mixer_strips)):
 			self.visible_mixer_strips[chain] = zynthian_gui_mixer_strip(self, 1 + self.fader_width * chain, 0, self.fader_width - 1, self.height, None)
 
-		self.main_layer = zynthian_gui_mixer_main_layer()
-		self.main_mixbus_strip = zynthian_gui_mixer_strip(self, self.width - self.fader_width - 1, 0, self.fader_width - 1, self.height, self.main_layer)
+		self.nofx_main_layer = zynthian_gui_mixer_main_layer()
+		self.main_mixbus_strip = zynthian_gui_mixer_strip(self, self.width - self.fader_width - 1, 0, self.fader_width - 1, self.height, self.nofx_main_layer)
 
 		# Horizontal scroll (via mouse wheel) area
 		#legend_height = self.visible_mixer_strips[0].legend_height 
@@ -713,7 +756,7 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 			self.select_chain_by_index(0)
 		else:
 			self.select_chain_by_index(self.selected_chain_index)
-		self.setup_zyncoders()
+		self.setup_zynpots()
 		zynmixer.enable_dpm(True)
 		super().show()
 
@@ -761,15 +804,27 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 	# layer: Layer object
 	# set_curlayer: True to select the layer
 	def select_chain_by_layer(self, layer, set_curlayer=True):
-		index = 0
-		if layer == self.main_layer:
-			self.select_chain_by_index(self.number_layers)
+		if layer.midi_chan == MAIN_CHANNEL_INDEX:
+			self.select_chain_by_index(self.number_layers, set_curlayer)
 			return
-		for search_layer in self.zyngui.screens['layer'].root_layers:
-			if layer == search_layer:
-				self.select_chain_by_index(index, set_curlayer)
+
+		i = 0
+		for rl in self.zyngui.screens['layer'].root_layers:
+			if rl == layer:
+				self.select_chain_by_index(i, set_curlayer)
 				return
-			index += 1
+			i += 1
+
+
+	# Function to highlight the selected chain's strip
+	def highlight_selected_chain(self):
+		if self.selected_chain_index is not None:
+			strip_on = self.get_mixer_strip_from_layer_index(self.selected_chain_index)
+			if strip_on and strip_on!=self.highlighted_strip:
+				if self.highlighted_strip is not None:
+					self.highlighted_strip.set_highlight(False)
+				strip_on.set_highlight(True)
+				self.highlighted_strip = strip_on
 
 
 	# Function to select chain by index
@@ -788,21 +843,31 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 		elif self.selected_chain_index >= self.mixer_strip_offset + len(self.visible_mixer_strips) and self.selected_chain_index != self.number_layers:
 			self.mixer_strip_offset = self.selected_chain_index - len(self.visible_mixer_strips) + 1
 			self.refresh_visible_strips()
+
 		if self.selected_chain_index < self.number_layers:
-			self.selected_layer = self.zyngui.screens['layer'].get_root_layers()[self.selected_chain_index]
+			self.selected_layer = self.zyngui.screens['layer'].root_layers[self.selected_chain_index]
 		else:
-			self.selected_layer = self.main_layer
-		self.highlight_selected_strip()
+			self.selected_layer = self.main_mixbus_strip.layer
 
-		self.update_zyncoders()
+		self.highlight_selected_chain()
 
-		if set_curlayer and self.selected_layer != self.main_layer:
+		if set_curlayer and self.selected_layer.engine:
 			self.zyngui.set_curlayer(self.selected_layer) #TODO: Lose this re-entrant loop
 
 
 	# Function refresh and populate visible mixer strips
 	def refresh_visible_strips(self):
-		layers = self.zyngui.screens['layer'].get_root_layers()
+
+		layers = copy.copy(self.zyngui.screens['layer'].get_root_layers())
+		main_fx_layer = self.zyngui.screens['layer'].get_main_fxchain_root_layer()
+
+		# Get Global-FX layer if it exists...
+		if main_fx_layer:
+			self.main_mixbus_strip.set_layer(main_fx_layer)
+			layers.remove(main_fx_layer)
+		else:
+			self.main_mixbus_strip.set_layer(self.nofx_main_layer)
+
 		self.number_layers = len(layers)
 		for offset in range(len(self.visible_mixer_strips)):
 			index = self.mixer_strip_offset + offset
@@ -810,18 +875,9 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 				self.visible_mixer_strips[offset].set_layer(None)
 			else:
 				self.visible_mixer_strips[offset].set_layer(layers[index])
+
 		self.main_mixbus_strip.redraw_controls(True)
-		self.highlight_selected_strip()
-
-
-	# Function to highlight the selected strip
-	def highlight_selected_strip(self):
-		chan_strip = self.get_mixer_strip_from_layer_index()
-		if chan_strip:
-			self.main_canvas.coords(self.selection_highlight, chan_strip.x, chan_strip.height - chan_strip.legend_height, chan_strip.x + chan_strip.width + 1, chan_strip.height)
-			self.main_canvas.itemconfig(self.selection_highlight, state="normal")
-		else:
-			self.main_canvas.itemconfig(self.selection_highlight, state="hidden")
+		self.highlight_selected_chain()
 
 
 	# Function to detect if a layer is audio
@@ -838,19 +894,35 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 		chan_strip = self.get_mixer_strip_from_layer_index(layer_index)
 		if chan_strip:
 			chan_strip.set_volume(value)
-			if layer_index == self.selected_chain_index:
-				self.update_zyncoders()
 
 
-	# Function to set volume
+	# Function to get volume
+	#	layer_index: Index of layer to get volume. If None, selected layer is used
+	def get_volume(self, layer_index=None):
+		chan_strip = self.get_mixer_strip_from_layer_index(layer_index)
+		if chan_strip:
+			return chan_strip.get_volume()
+		else:
+			return -1
+
+
+	# Function to set balance
 	#	value: Balance value (0..1)
 	#	layer_index: Index of layer to set volume. If None, selected layer is used
 	def set_balance(self, value, layer_index=None):
 		chan_strip = self.get_mixer_strip_from_layer_index(layer_index)
 		if chan_strip and self.is_audio_layer(chan_strip.layer):
 			chan_strip.set_balance(value)
-			if layer_index == self.selected_chain_index:
-				self.update_zyncoders()
+
+
+	# Function to get balance
+	#	layer_index: Index of layer to set volume. If None, selected layer is used
+	def get_balance(self, layer_index=None):
+		chan_strip = self.get_mixer_strip_from_layer_index(layer_index)
+		if chan_strip and self.is_audio_layer(chan_strip.layer):
+			return chan_strip.get_balance()
+		else:
+			return -1
 
 
 	# Function to reset volume
@@ -859,8 +931,6 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 		chan_strip = self.get_mixer_strip_from_layer_index(layer_index)
 		if chan_strip and self.is_audio_layer(chan_strip.layer):
 			chan_strip.reset_volume()
-			if layer_index == self.selected_chain_index:
-				self.update_zyncoders()
 
 
 	# Function to reset balance
@@ -869,8 +939,6 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 		chan_strip = self.get_mixer_strip_from_layer_index(layer_index)
 		if chan_strip and self.is_audio_layer(chan_strip.layer):
 			chan_strip.reset_balance()
-			if layer_index == self.selected_chain_index:
-				self.update_zyncoders()
 
 
 	# Function to set mute
@@ -930,9 +998,44 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 
 
 	#--------------------------------------------------------------------------
-	# Physical UI Control Management: Pots & switches
+	# Main strip options menu
 	#--------------------------------------------------------------------------
 
+	def show_mainfx_options(self):
+		options = OrderedDict()
+		if zynmixer.get_mono(self.selected_layer.midi_chan):
+			options["[x] Audio Mono"] = "Mono"
+		else:
+			options["[  ] Audio Mono"] = "Mono"
+		if zynthian_gui_config.multichannel_recorder:
+			if self.zyngui.audio_recorder.get_status():
+				primed_option = None
+			else:
+				primed_option = "Primed"
+			if self.zyngui.audio_recorder.is_primed(MAIN_CHANNEL_INDEX):
+				options["[x] Recording Primed"] = primed_option
+			else:
+				options["[  ] Recording Primed"] = primed_option
+		options["> Audio Chain ---------------"] = None
+		options["Add Audio-FX"] = "Add"
+		self.zyngui.screens['option'].config("Main Chain Options", options, self.mainfx_options_cb)
+		self.zyngui.show_screen('option')
+
+
+	def mainfx_options_cb(self, option, param):
+		if param == "Add":
+			self.zyngui.screens['layer'].add_fxchain_layer(MAIN_CHANNEL_INDEX)
+		elif param == "Mono":
+			zynmixer.toggle_mono(MAIN_CHANNEL_INDEX)
+			self.show_mainfx_options()
+		elif param == "Primed":
+			self.zyngui.audio_recorder.toggle_prime(MAIN_CHANNEL_INDEX)
+			self.show_mainfx_options()
+
+
+	#--------------------------------------------------------------------------
+	# Physical UI Control Management: Pots & switches
+	#--------------------------------------------------------------------------
 
 	# Function to handle switches press
 	#	swi: Switch index [0=Layer, 1=Back, 2=Snapshot, 3=Select]
@@ -961,107 +1064,73 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 				return True
 
 		elif swi == ENC_SELECT:
-			if t == "S":
-				if isinstance(self.selected_layer, zyngine.zynthian_layer):
+			if isinstance(self.selected_layer, zyngine.zynthian_layer):
+				if t == "S":
 					self.zyngui.layer_control(self.selected_layer)
-				return True
-			elif t == "B":
-				if self.selected_layer != self.main_layer:
+				elif t == "B":
 					# Layer Options
 					self.zyngui.screens['layer'].select(self.selected_chain_index)
 					self.zyngui.screens['layer_options'].reset()
 					self.zyngui.show_screen('layer_options')
-				return True
+			elif t == "B":
+				self.show_mainfx_options()
+			return True
 
 		return False
 
 
-	def setup_zyncoders(self):
-		if not self.selected_layer:
-			return
-		value = int(zynmixer.get_level(self.selected_layer.midi_chan) * 100)
-		lib_zyncore.setup_rangescale_zynpot(ENC_LAYER, 0, 100, value, 0)
-		lib_zyncore.setup_midi_zynpot(ENC_LAYER, 0, 0)
-		lib_zyncore.setup_osc_zynpot(ENC_LAYER, None)
-
-		value = 50 + int(zynmixer.get_balance(self.selected_layer.midi_chan) * 50)
-		lib_zyncore.setup_rangescale_zynpot(ENC_BACK, 0, 100, value, 0)
-		lib_zyncore.setup_midi_zynpot(ENC_BACK, 0, 0)
-		lib_zyncore.setup_osc_zynpot(ENC_BACK, None)
-
-		value = int(zynmixer.get_level(self.main_layer.midi_chan) * 100)
-		lib_zyncore.setup_rangescale_zynpot(ENC_SNAPSHOT, 0, 100, value, 0)
-		lib_zyncore.setup_midi_zynpot(ENC_SNAPSHOT, 0, 0)
-		lib_zyncore.setup_osc_zynpot(ENC_SNAPSHOT, None)
-
-		lib_zyncore.setup_rangescale_zynpot(ENC_SELECT, 0, 4 * self.number_layers, 4 * self.selected_chain_index, 1)
-		lib_zyncore.setup_midi_zynpot(ENC_SELECT, 0, 0)
-		lib_zyncore.setup_osc_zynpot(ENC_SELECT, None)
+	def setup_zynpots(self):
+		lib_zyncore.setup_behaviour_zynpot(ENC_LAYER, 0)
+		lib_zyncore.setup_behaviour_zynpot(ENC_BACK, 0)
+		lib_zyncore.setup_behaviour_zynpot(ENC_SNAPSHOT, 0)
+		lib_zyncore.setup_behaviour_zynpot(ENC_SELECT, 1)
 
 
-	# Update the zyncoders values
-	def update_zyncoders(self):
-		# Selected mixer strip volume & balance
-		if self.selected_layer:
-			value = int(zynmixer.get_level(self.selected_layer.midi_chan) * 100)
-			lib_zyncore.set_value_noflag_zynpot(ENC_LAYER, value, 0)
-			value = 50 + int(zynmixer.get_balance(self.selected_layer.midi_chan) * 50)
-			lib_zyncore.set_value_noflag_zynpot(ENC_BACK, value, 0)
-
-			# Main mixbus volume
-			value = int(zynmixer.get_level(self.main_layer.midi_chan) * 100)
-			lib_zyncore.set_value_noflag_zynpot(ENC_SNAPSHOT, value, 0)
-
-		# Selector encoder
-		lib_zyncore.set_value_noflag_zynpot(ENC_SELECT, 4 * self.selected_chain_index, 0)
-
-
-	# Function to handle zyncoder polling.
-	def zyncoder_read(self):
+	# Function to handle zynpot CB
+	def zynpot_cb(self, i, dval):
 		if not self.shown:
 			return
 
 		redraw_fader_offset = None
 		redraw_main_fader = False
 
-		if self.selected_layer:
-			# LAYER encoder adjusts selected chain's level
-			if lib_zyncore.get_value_flag_zynpot(ENC_LAYER):
-				value = lib_zyncore.get_value_zynpot(ENC_LAYER)
+		# LAYER encoder adjusts selected chain's level
+		if i == ENC_LAYER:
+			if self.selected_layer:
+				value = zynmixer.get_level(self.selected_layer.midi_chan) + dval * 0.01
+				value = max(min(1, value), 0)
 				#logging.debug("Value LAYER: {}".format(value))
-				if self.selected_layer == self.main_layer:
-					lib_zyncore.set_value_noflag_zynpot(ENC_SNAPSHOT, value)
-				zynmixer.set_level(self.selected_layer.midi_chan, value * 0.01)
-				if self.selected_layer == self.main_layer:
+				zynmixer.set_level(self.selected_layer.midi_chan, value)
+				if self.selected_layer.midi_chan == MAIN_CHANNEL_INDEX:
 					redraw_main_fader = True
 				else:
 					redraw_fader_offset = self.selected_chain_index - self.mixer_strip_offset
 
-			# BACK encoder adjusts selected chain's balance/pan
-			if lib_zyncore.get_value_flag_zynpot(ENC_BACK):
-				value = lib_zyncore.get_value_zynpot(ENC_BACK)
+		# BACK encoder adjusts selected chain's balance/pan
+		elif i == ENC_BACK:
+			if self.selected_layer:
+				value = zynmixer.get_balance(self.selected_layer.midi_chan) + dval * 0.02
+				value = max(min(1, value), -1)
 				#logging.debug("Value BACK: {}".format(value))
-				zynmixer.set_balance(self.selected_layer.midi_chan, (value - 50) * 0.02)
-				if self.selected_layer == self.main_layer:
+				zynmixer.set_balance(self.selected_layer.midi_chan, value)
+				if self.selected_layer.midi_chan == MAIN_CHANNEL_INDEX:
 					redraw_main_fader = True
 				else:
 					redraw_fader_offset = self.selected_chain_index - self.mixer_strip_offset
 
-			# SNAPSHOT encoder adjusts main mixbus level
-			if lib_zyncore.get_value_flag_zynpot(ENC_SNAPSHOT):
-				value = lib_zyncore.get_value_zynpot(ENC_SNAPSHOT)
+		# SNAPSHOT encoder adjusts main mixbus level
+		elif i == ENC_SNAPSHOT:
+			if self.selected_layer:
+				value = zynmixer.get_level(MAIN_CHANNEL_INDEX) + dval * 0.01
+				value = max(min(1, value), 0)
 				#logging.debug("Value SHOT: {}".format(value))
-				if self.selected_layer == self.main_layer:
-					lib_zyncore.set_value_noflag_zynpot(ENC_LAYER, value)
-				zynmixer.set_level(self.main_layer.midi_chan, value * 0.01)
+				zynmixer.set_level(MAIN_CHANNEL_INDEX, value)
 				redraw_main_fader = True
 
 		# SELECT encoder moves chain selection
-		if lib_zyncore.get_value_flag_zynpot(ENC_SELECT):
-			value = int((1+lib_zyncore.get_value_zynpot(ENC_SELECT))/4)
-			#logging.debug("Value SELECT: {}".format(value))
-			if value != self.selected_chain_index:
-				self.select_chain_by_index(value)
+		elif i == ENC_SELECT:
+			self.select_chain_by_index(self.selected_chain_index + dval)
+			#logging.debug("Value SELECT: {}".format(self.selected_chain_index))
 
 		if redraw_main_fader:
 			self.main_mixbus_strip.draw_controls()
@@ -1069,67 +1138,26 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 			self.visible_mixer_strips[redraw_fader_offset].draw_controls()
 
 
-	# Increment by inc the zyncoder's value
-	def zyncoder_up(self, num, inc = 1):
-		lib_zyncore.set_value_zynpot(num, lib_zyncore.get_value_zynpot(num) + inc, 0)
-
-
-	# Decrement by dec the zyncoder's value
-	def zyncoder_down(self, num, dec = 1):
-		value = lib_zyncore.get_value_zynpot(num) - dec
-		if value < 0:
-			value = 0 #TODO: This should be handled by zyncoder
-		lib_zyncore.set_value_zynpot(num, value, 0)
-
-
-	# Function to handle CUIA NEXT command
-	def next(self):
-		self.select_chain_by_index(self.selected_chain_index + 1)
-
-
-	# Function to handle CUIA PREV command
-	def prev(self):
+	# Function to handle CUIA ARROW_LEFT
+	def arrow_left(self):
 		self.select_chain_by_index(self.selected_chain_index - 1)
 
 
-	# Function to handle CUIA SELECT_UP command
-	def select_up(self):
+	# Function to handle CUIA ARROW_RIGHT
+	def arrow_right(self):
 		self.select_chain_by_index(self.selected_chain_index + 1)
 
 
-	# Function to handle CUIA SELECT_DOWN command
-	def select_down(self):
-		self.select_chain_by_index(self.selected_chain_index - 1)
+	# Function to handle CUIA ARROW_UP
+	def arrow_up(self):
+		self.set_volume(self.get_volume() + 0.1)
+		self.redraw_mixer_controls()
 
 
-	# Function to handle CUIA BACK_UP command
-	def back_up(self):
-		self.zyncoder_up(ENC_BACK)
-
-
-	# Function to handle CUIA BACK_DOWN command
-	def back_down(self):
-		self.zyncoder_back(ENC_BACK)
-
-
-	# Function to handle CUIA LAYER_UP command
-	def layer_up(self):
-		self.zyncoder_up(ENC_LAYER)
-
-
-	# Function to handle CUIA LAYER_DOWN command
-	def layer_down(self):
-		self.zyncoder_down(ENC_LAYER)
-
-
-	# Function to handle CUIA SNAPSHOT_UP command
-	def snapshot_up(self):
-		self.zyncoder_up(ENC_SNAPSHOT)
-
-
-	# Function to handle CUIA SNAPSHOT_DOWN command
-	def snapshot_down(self):
-		self.zyncoder_down(ENC_SNAPSHOT)
+	# Function to handle CUIA ARROW_DOWN
+	def arrow_down(self):
+		self.set_volume(self.get_volume() - 0.1)
+		self.redraw_mixer_controls()
 
 
 	#--------------------------------------------------------------------------
@@ -1160,6 +1188,11 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 				self.set_solo(int(args[0]), int(path[4:]))
 			except:
 				pass
+		elif path[:4] == "MONO":
+			try:
+				self.set_mono(int(args[0]), int(path[4:]))
+			except:
+				pass
 		self.redraw_mixer_controls()
 
 
@@ -1183,15 +1216,21 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 
 
 	# Set full mixer state
-	# state: List of mixer stripss containing dictionary of each state value
+	# state: List of mixer strips containing dictionary of each state value
 	def set_state(self, state):
-		for strip in range(MAX_NUM_CHANNELS + 1):
-			zynmixer.set_level(strip, state[strip]['level'])
-			zynmixer.set_balance(strip, state[strip]['balance'])
-			zynmixer.set_mute(strip, state[strip]['mute'])
-			if strip != MAX_NUM_CHANNELS:
-				zynmixer.set_solo(strip, state[strip]['solo'])
-			zynmixer.set_mono(strip, state[strip]['mono'])
+		for index, strip in enumerate(state):
+			if 'level' in strip:
+				zynmixer.set_level(index, state['level'])
+			if 'balance' in strip:
+				zynmixer.set_balance(index, state['balance'])
+			if 'mute' in strip:
+				zynmixer.set_mute(index, state['mute'])
+			if 'phase' in strip:
+				zynmixer.set_phase(index, state['phase'])
+			if 'solo' in strip and index < MAX_NUM_CHANNELS:
+					zynmixer.set_solo(index, state['solo'])
+			if 'mono' in strip:
+				zynmixer.set_mono(index, state['mono'])
 		self.refresh_visible_strips()
 
 
@@ -1201,6 +1240,7 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 			zynmixer.set_level(strip, 0.8)
 			zynmixer.set_balance(strip, 0)
 			zynmixer.set_mute(strip, 0)
+			zynmixer.set_phase(strip, 0)
 			zynmixer.set_solo(strip, 0)
 			zynmixer.set_mono(strip, 0)
 		self.refresh_visible_strips()
@@ -1227,3 +1267,12 @@ class zynthian_gui_mixer(zynthian_gui_base.zynthian_gui_base):
 		self.mixer_strip_offset += 1
 		self.refresh_visible_strips()
 
+
+	# Function to handle CUIA SELECT_UP command (reversed to drive down screen with DOWN action)
+	def select_up(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_SELECT, 1)
+
+
+	# Function to handle CUIA SELECT_DOWN command
+	def select_down(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_SELECT, -1)

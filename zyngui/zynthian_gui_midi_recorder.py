@@ -63,7 +63,8 @@ class zynthian_gui_midi_recorder(zynthian_gui_selector):
 			'value_min': 20,
 			'value_max': 400,
 			'is_toggle': False,
-			'is_integer': True
+			'is_integer': False,
+			'nudge_factor': 0.1
 		})
 		self.bpm_zgui_ctrl = None
 
@@ -372,7 +373,6 @@ class zynthian_gui_midi_recorder(zynthian_gui_selector):
 		if self.bpm_zgui_ctrl:
 			self.bpm_zgui_ctrl.config(self.bpm_zctrl)
 			self.bpm_zgui_ctrl.show()
-			self.bpm_zgui_ctrl.zctrl_sync(True)
 		else:
 			self.bpm_zgui_ctrl = zynthian_gui_controller(2, self.main_frame, self.bpm_zctrl)
 
@@ -389,16 +389,22 @@ class zynthian_gui_midi_recorder(zynthian_gui_selector):
 			logging.debug("SET PLAYING BPM => {}".format(zctrl.value))
 
 
-	def zyncoder_read(self):
-		super().zyncoder_read()
-		if self.shown and self.bpm_zgui_ctrl:
-			self.bpm_zgui_ctrl.read_zyncoder()
-		return [0,1]
+	def zynpot_cb(self, i ,dval):
+		if not self.shown:
+			return False
+		
+		if self.bpm_zgui_ctrl and self.bpm_zgui_ctrl.index == i:
+			self.bpm_zgui_ctrl.zynpot_cb(dval)
+			return True
+		else:
+			return super().zynpot_cb(i, dval)
 
 
-	def plot_zctrls(self):
+	def plot_zctrls(self, force=False):
 		super().plot_zctrls()
 		if self.bpm_zgui_ctrl:
+			if self.bpm_zctrl.is_dirty or force:
+				self.bpm_zgui_ctrl.calculate_plot_values()
 			self.bpm_zgui_ctrl.plot_value()
 
 

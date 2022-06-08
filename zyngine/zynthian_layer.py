@@ -50,15 +50,22 @@ class zynthian_layer:
 
 
 	def __init__(self, engine, midi_chan, zyngui=None):
-		self.zyngui = zyngui
-		self.engine = engine
+		self.engine = None
 		self.midi_chan = midi_chan
+		self.zyngui = zyngui
 
 		self.jackname = None
-		self.audio_out = ["system:playback_1", "system:playback_2"]
-		if midi_chan != None:
-			self.audio_out = ["zynmixer:input_%02da"%(midi_chan + 1), "zynmixer:input_%02db"%(midi_chan + 1)]
-		self.audio_in = ["system:capture_1", "system:capture_2"]
+		
+		if self.midi_chan is None:
+			self.audio_out = ["system"]	
+		else:
+			self.audio_out = ["mixer"]
+
+		if self.midi_chan is None or self.midi_chan<16:
+			self.audio_in = ["system:capture_1", "system:capture_2"]
+		else:
+			self.audio_in = []
+
 		self.midi_out = ["MIDI-OUT", "NET-OUT"]
 
 		self.bank_list = []
@@ -87,8 +94,16 @@ class zynthian_layer:
 		self.listen_midi_cc = True
 		self.refresh_flag = False
 
+		self.status = "" # Allows indication of arbitary status text
+
 		self.reset_zs3()
 
+		if engine is not None:
+			self.set_engine(engine)
+
+
+	def set_engine(self, engine):
+		self.engine = engine
 		self.engine.add_layer(self)
 		self.refresh_controllers()
 
@@ -130,10 +145,8 @@ class zynthian_layer:
 		self.engine.set_midi_chan(self)
 		for zctrl in self.controllers_dict.values():
 			zctrl.set_midi_chan(midi_chan)
-		for index, output in enumerate(self.audio_out):
-			if output.startswith("zynmixer:input_"):
-				self.audio_out[index] = "zynmixer:input_%02d%s"%(midi_chan + 1, output[-1:])
 		self.zyngui.zynautoconnect_audio()
+
 
 	def get_midi_chan(self):
 		return self.midi_chan
@@ -379,9 +392,9 @@ class zynthian_layer:
 
 
 	def set_show_fav_presets(self, flag=True):
-		if flag:
+		if flag and len(self.engine.get_preset_favs(self)):
 			self.show_fav_presets = True
-			self.reset_preset()
+			#self.reset_preset()
 		else:
 			self.show_fav_presets = False
 
@@ -452,10 +465,11 @@ class zynthian_layer:
 	def build_ctrl_screen(self, ctrl_keys):
 		zctrls=[]
 		for k in ctrl_keys:
-			try:
-				zctrls.append(self.controllers_dict[k])
-			except:
-				logging.error("Controller %s is not defined" % k)
+			if k:
+				try:
+					zctrls.append(self.controllers_dict[k])
+				except:
+					logging.error("Controller %s is not defined" % k)
 		return zctrls
 
 
@@ -488,6 +502,7 @@ class zynthian_layer:
 			# MIDI-CC zctrls (also router MIDI-learn, aka CC-swaps)
 			#TODO => Optimize!! Use the MIDI learning mechanism for caching this ...
 			if self.listen_midi_cc:
+    			#TODO: What is this bit of code for? 
 				swap_info = lib_zyncore.get_midi_filter_cc_swap(chan, ccnum)
 				midi_chan = swap_info >> 8
 				midi_cc = swap_info & 0xFF
@@ -495,7 +510,7 @@ class zynthian_layer:
 				if self.zyngui.is_single_active_channel():
 					for k, zctrl in self.controllers_dict.items():
 						try:
-							if zctrl.midi_learn_cc and zctrl.midi_learn_cc>0:
+							if zctrl.midi_learn_cc:
 								if self.midi_chan==chan and zctrl.midi_learn_cc==ccnum:
 									self.engine.midi_zctrl_change(zctrl, ccval)
 							else:
@@ -506,11 +521,11 @@ class zynthian_layer:
 				else:
 					for k, zctrl in self.controllers_dict.items():
 						try:
-							if zctrl.midi_learn_cc and zctrl.midi_learn_cc>0:
-								if zctrl.midi_learn_chan==chan and zctrl.midi_learn_cc==ccnum:
+							if zctrl.midi_learn_cc:
+								if zctrl.midi_learn_chan == chan and zctrl.midi_learn_cc == ccnum:
 									self.engine.midi_zctrl_change(zctrl, ccval)
 							else:
-								if zctrl.midi_chan==midi_chan and zctrl.midi_cc==midi_cc:
+								if zctrl.midi_chan == midi_chan and zctrl.midi_cc == midi_cc:
 									self.engine.midi_zctrl_change(zctrl, ccval)
 						except:
 							pass
@@ -737,33 +752,21 @@ class zynthian_layer:
 		return self.audio_out
 
 
-	def get_audio_out_ports(self):
-		aout_ports = []
-		for p in self.audio_out:
-			if p=="system":
-				aout_ports += ["system:playback_1", "system:playback_2"]
-			elif p=="mixer":
-				aout_ports += ["zynmixer:input_%02da"%(self.midi_chan + 1), "zynmixer:input_%02db"%(self.midi_chan + 1)]
-			else:
-				aout_ports.append(p)
-		return set(aout_ports)
-
-
 	def set_audio_out(self, ao):
 		self.audio_out = []
 
 		# Sanitize audio out list. It should avoid audio routing snapshot version issues.
 		for p in ao:
 			if p.startswith("system") or p.startswith("zynmixer"):
-				if self.midi_chan == None:
-					aout_ports.append("system")
+				if self.midi_chan is None:
+					self.audio_out.append("system")
 				else:
-					aout_ports.append("mixer")
+					self.audio_out.append("mixer")
 			else:
-				aout_ports.append(p)
+				self.audio_out.append(p)
 
 		# Remove duplicates
-		self.audio_out = list(set(ao))
+		self.audio_out = list(dict.fromkeys(self.audio_out).keys())
 
 		self.pair_audio_out()
 		self.zyngui.zynautoconnect_audio()
@@ -811,7 +814,7 @@ class zynthian_layer:
 
 
 	def reset_audio_out(self):
-		if self.midi_chan == None:
+		if self.midi_chan is None:
 			self.audio_out = ["system"]
 		else:
 			self.audio_out = ["mixer"]
@@ -878,7 +881,10 @@ class zynthian_layer:
 
 
 	def reset_audio_in(self):
-		self.audio_in=["system:capture_1", "system:capture_2"]
+		if self.midi_chan is None or self.midi_chan<16:
+			self.audio_in = ["system:capture_1", "system:capture_2"]
+		else:
+			self.audio_in = []
 		self.zyngui.zynautoconnect_audio()
 
 

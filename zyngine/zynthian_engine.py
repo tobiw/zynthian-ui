@@ -58,6 +58,7 @@ class zynthian_basic_engine:
 
 	def __init__(self, name=None, command=None, prompt=None, cwd=None):
 		self.name = name
+		self.layer_cb = None
 
 		self.proc = None
 		self.proc_timeout = 20
@@ -363,20 +364,6 @@ class zynthian_engine(zynthian_basic_engine):
 
 		return res
 
-
-	@staticmethod
-	def get_cmdlist(cmd):
-		res=[]
-		i=0
-		output=check_output(cmd, shell=True)
-		lines=output.decode('utf8').split('\n')
-		for f in lines:
-			title=str.replace(f, '_', ' ')
-			res.append([f,i,title])
-			i=i+1
-		return res
-
-
 	# ---------------------------------------------------------------------------
 	# Layer Management
 	# ---------------------------------------------------------------------------
@@ -440,7 +427,7 @@ class zynthian_engine(zynthian_basic_engine):
 	# ---------------------------------------------------------------------------
 
 	def get_preset_list(self, bank):
-		logging.info('Getting Preset List for %s: NOT IMPLEMENTED!' % self.name),'PD'
+		logging.info('Getting Preset List for %s: NOT IMPLEMENTED!', self.name)
 
 
 	def set_preset(self, layer, preset, preload=False):
@@ -461,7 +448,8 @@ class zynthian_engine(zynthian_basic_engine):
 			return False
 
 	def is_preset_user(self, preset):
-		return isinstance(preset[0], str) and preset[0].startswith("/{}/presets/".format(self.my_data_dir))
+		return isinstance(preset[0], str) and preset[0].startswith(self.my_data_dir)
+
 
 	# To implement in derived classes
 	#def save_preset(self, bank_name, preset_name):
@@ -541,6 +529,10 @@ class zynthian_engine(zynthian_basic_engine):
 	# ---------------------------------------------------------------------------
 	# Controllers Management
 	# ---------------------------------------------------------------------------
+
+	def set_ctrl_update_cb(self, cb):
+		self.layer_cb = cb
+
 
 	# Get zynthian controllers dictionary:
 	# + Default implementation uses a static controller definition array
@@ -692,17 +684,11 @@ class zynthian_engine(zynthian_basic_engine):
 
 
 	def midi_zctrl_change(self, zctrl, val):
-		try:
-			if val!=zctrl.get_value():
-				zctrl.set_value(val)
-				#logging.debug("MIDI CC {} -> '{}' = {}".format(zctrl.midi_cc, zctrl.name, val))
-
-				#Refresh GUI controller in screen when needed ...
-				if self.zyngui.current_screen in ('control', 'alsa_mixer'):
-					self.zyngui.screens['control'].set_controller_value(zctrl)
-
-		except Exception as e:
-			logging.debug(e)
+		if val != zctrl.get_ctrl_midi_val():
+			try:
+				zctrl.midi_control_change(val)
+			except Exception as e:
+				logging.debug(e)
 
 
 	# ---------------------------------------------------------------------------
@@ -728,6 +714,18 @@ class zynthian_engine(zynthian_basic_engine):
 	def get_zynapi_methods(cls):
 		return [f for f in dir(cls) if f.startswith('zynapi_')]
 		#callable(f) and
+
+
+	# Remove double spacing
+	@classmethod
+	def remove_double_spacing(cls, lines):
+		double_line = []
+		for index,line in enumerate(lines):
+			if line.strip() == "" and index > 0 and lines[index - 1].strip() == "":
+				double_line.append(index)
+		double_line.sort(reverse=True)
+		for line in double_line:
+			del lines[line]
 
 
 #******************************************************************************

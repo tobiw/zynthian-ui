@@ -5,7 +5,7 @@
 #
 # Zynthian GUI Base Class: Status Bar + Basic layout & events
 #
-# Copyright (C) 2015-2020 Fernando Moyano <jofemodo@zynthian.org>
+# Copyright (C) 2015-2022 Fernando Moyano <jofemodo@zynthian.org>
 #
 #******************************************************************************
 #
@@ -46,16 +46,13 @@ class zynthian_gui_base:
 	METER_CPU	= 2
 
 	#Default buttonbar config (touchwidget)
-	buttonbar_config = [
-		(1, 'BACK'),
-		(0, 'LAYER'),
-		(2, 'LEARN'),
-		(3, 'SELECT')
-	]
+	buttonbar_config = []
 
 	def __init__(self):
 		self.shown = False
 		self.zyngui = zynthian_gui_config.zyngui
+
+		self.buttonbar_button = [None, None, None, None]
 
 		# Geometry vars
 		self.width=zynthian_gui_config.display_width
@@ -240,8 +237,14 @@ class zynthian_gui_base:
 			self.add_button(i, self.buttonbar_config[i][0], self.buttonbar_config[i][1])
 
 
+	def set_buttonbar_label(self, column, label):
+		if zynthian_gui_config.enable_onscreen_buttons and self.buttonbar_button[column]:
+			self.buttonbar_button[column]['text'] = label
+
+
 	def add_button(self, column, index, label):
-		select_button = tkinter.Button(
+		# Touchbar frame
+		self.buttonbar_button[column] = select_button = tkinter.Button(
 			self.buttonbar_frame,
 			bg=zynthian_gui_config.color_panel_bg,
 			fg=zynthian_gui_config.color_header_tx,
@@ -458,7 +461,7 @@ class zynthian_gui_base:
 					width=int(self.status_fs*1.2),
 					justify=tkinter.RIGHT,
 					fill=color,
-					font=("FontAwesome", self.status_fs, "bold"),
+					font=("forkawesome", self.status_fs),
 					text=flags)
 			else:
 				self.status_canvas.itemconfig(self.status_error, text=flags, fill=color)
@@ -467,15 +470,15 @@ class zynthian_gui_base:
 			flags = ""
 			color = zynthian_gui_config.color_bg
 			if 'audio_recorder' in status:
-				if status['audio_recorder']=='REC':
 					flags = "\uf111"
 					color = zynthian_gui_config.color_status_record
-				elif status['audio_recorder']=='PLAY':
-					flags = "\uf04b"
-					color = zynthian_gui_config.color_status_play
-				elif status['audio_recorder']=='PLAY+REC':
+			if 'audio_player' in status:
+				if flags:
 					flags = "\uf144"
 					color = zynthian_gui_config.color_status_record
+				else:
+					flags = "\uf04b"
+					color = zynthian_gui_config.color_status_play
 			if not flags and 'midi_recorder' in status:
 				if status['midi_recorder']=='REC':
 					flags = "\uf111"
@@ -494,7 +497,7 @@ class zynthian_gui_base:
 					width=int(self.status_fs*1.2),
 					justify=tkinter.RIGHT,
 					fill=color,
-					font=("FontAwesome", self.status_fs, "bold"),
+					font=("forkawesome", self.status_fs),
 					text=flags)
 			else:
 				self.status_canvas.itemconfig(self.status_recplay, text=flags, fill=color)
@@ -512,7 +515,7 @@ class zynthian_gui_base:
 					width=int(self.status_fs*1.2),
 					justify=tkinter.RIGHT,
 					fill=zynthian_gui_config.color_status_midi,
-					font=("FontAwesome", self.status_fs, "bold"),
+					font=("forkawesome", self.status_fs),
 					text="m",
 					state=mstate)
 			else:
@@ -539,10 +542,56 @@ class zynthian_gui_base:
 	def refresh_loading(self):
 		pass
 
+	#--------------------------------------------------------------------------
+	# Zynpot Callbacks (rotaries!) & CUIA
+	#--------------------------------------------------------------------------
 
-	def zyncoder_read(self, zcnums=None):
+	def zynpot_cb(self, i, dval):
 		pass
 
+
+	# Function to handle CUIA SELECT_UP command (reversed to drive down screen with DOWN action)
+	def select_up(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_SELECT, -1)
+
+
+	# Function to handle CUIA SELECT_DOWN command
+	def select_down(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_SELECT, 1)
+
+
+	# Function to handle CUIA BACK_UP command
+	def back_up(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_BACK, 1)
+
+
+	# Function to handle CUIA BACK_DOWN command
+	def back_down(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_BACK, -1)
+
+
+	# Function to handle CUIA LAYER_UP command
+	def layer_up(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_LAYER, 1)
+
+
+	# Function to handle CUIA LAYER_DOWN command
+	def layer_down(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_LAYER, -1)
+
+
+	# Function to handle CUIA SNAPSHOT_UP command
+	def snapshot_up(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_SNAPSHOT, 1)
+
+
+	# Function to handle CUIA SNAPSHOT_DOWN command
+	def snapshot_down(self):
+		self.zynpot_cb(zynthian_gui_config.ENC_SNAPSHOT, -1)
+
+	#--------------------------------------------------------------------------
+	# Keyboard & Mouse/Touch Callbacks
+	#--------------------------------------------------------------------------
 
 	def cb_keybinding(self, event):
 		logging.debug("Key press {} {}".format(event.keycode, event.keysym))

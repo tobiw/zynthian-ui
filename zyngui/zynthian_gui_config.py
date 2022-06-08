@@ -5,7 +5,7 @@
 # 
 # Zynthian GUI configuration
 # 
-# Copyright (C) 2015-2021 Fernando Moyano <jofemodo@zynthian.org>
+# Copyright (C) 2015-2022 Fernando Moyano <jofemodo@zynthian.org>
 #
 #******************************************************************************
 # 
@@ -51,6 +51,11 @@ logging.info("ZYNTHIAN-UI CONFIG ...")
 #------------------------------------------------------------------------------
 # Wiring layout
 #------------------------------------------------------------------------------
+
+ENC_LAYER			= 0
+ENC_BACK			= 1
+ENC_SNAPSHOT		= 2
+ENC_SELECT			= 3
 
 wiring_layout=os.environ.get('ZYNTHIAN_WIRING_LAYOUT',"DUMMIES")
 if wiring_layout=="DUMMIES":
@@ -365,7 +370,7 @@ color_status_record=color_low_on
 color_status_error=color_error
 
 #------------------------------------------------------------------------------
-# UI Font Parameters
+# Font Family
 #------------------------------------------------------------------------------
 
 font_family=os.environ.get('ZYNTHIAN_UI_FONT_FAMILY',"Audiowide")
@@ -373,10 +378,6 @@ font_family=os.environ.get('ZYNTHIAN_UI_FONT_FAMILY',"Audiowide")
 #font_family="Economica" #=> small
 #font_family="Orbitron" #=> Nice, but too strange
 #font_family="Abel" #=> Quite interesting, also "Strait"
-
-font_size=int(os.environ.get('ZYNTHIAN_UI_FONT_SIZE',None))
-if not font_size:
-	font_size = int(display_width / 40)
 
 #------------------------------------------------------------------------------
 # Touch Options
@@ -394,6 +395,7 @@ restore_last_state=int(os.environ.get('ZYNTHIAN_UI_RESTORE_LAST_STATE',False))
 snapshot_mixer_settings=int(os.environ.get('ZYNTHIAN_UI_SNAPSHOT_MIXER_SETTINGS',False))
 show_cpu_status=int(os.environ.get('ZYNTHIAN_UI_SHOW_CPU_STATUS',False))
 visible_mixer_strips=int(os.environ.get('ZYNTHIAN_UI_VISIBLE_MIXER_STRIPS',0))
+multichannel_recorder=int(os.environ.get('ZYNTHIAN_UI_MUKTICHANNEL_REC', 0))
 
 #------------------------------------------------------------------------------
 # Audio Options
@@ -453,6 +455,11 @@ if "zynthian_gui.py" in sys.argv[0]:
 			except:
 				logging.warning("Can't get screen height. Using default 240!")
 				display_height=240
+
+		# Global font size
+		font_size=int(os.environ.get('ZYNTHIAN_UI_FONT_SIZE',None))
+		if not font_size:
+			font_size = int(display_width / 40)
 
 		# Geometric params
 		button_width = display_width // 4

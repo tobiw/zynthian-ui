@@ -38,6 +38,12 @@ from zyngui.zynthian_gui_selector import zynthian_gui_selector
 class zynthian_gui_preset(zynthian_gui_selector):
 
 	def __init__(self):
+		self.buttonbar_config = [
+			(1, 'BANKS\n[mixer]'),
+			(0, '\n[menu]'),
+			(2, 'FAVORITES\n[snapshot]'),
+			(3, 'SELECT\n[options]')
+		]
 		super().__init__('Preset', True)
 
 
@@ -53,6 +59,10 @@ class zynthian_gui_preset(zynthian_gui_selector):
 
 	def show(self):
 		if self.zyngui.curlayer:
+			if len(self.zyngui.curlayer.bank_list) > 1:
+				self.set_buttonbar_label(0, 'BANKS\n[mixer]')
+			else:
+				self.set_buttonbar_label(0, 'CONTROL\n[mixer]')
 			super().show()
 		else:
 			self.zyngui.close_screen()
@@ -61,7 +71,7 @@ class zynthian_gui_preset(zynthian_gui_selector):
 	def select_action(self, i, t='S'):
 		if t=='S':
 			self.zyngui.curlayer.set_preset(i)
-			self.zyngui.show_screen('control')
+			self.zyngui.show_screen_reset('control')
 
 
 	def show_preset_options(self):
@@ -85,8 +95,10 @@ class zynthian_gui_preset(zynthian_gui_selector):
 	def preset_options_cb(self, option, preset):
 		if option.endswith("Favourite"):
 			self.zyngui.curlayer.toggle_preset_fav(preset)
-			self.zyngui.screens['option'].update_list()
+			self.zyngui.curlayer.load_preset_list()
+			# Clumsey way to repopulate options screen by hide then show
 			self.zyngui.close_screen()
+			self.show_preset_options()
 		elif option == "Rename":
 			self.zyngui.show_keyboard(self.rename_preset, preset[2])
 		elif option == "Delete":
@@ -112,9 +124,11 @@ class zynthian_gui_preset(zynthian_gui_selector):
 
 	def delete_preset_confirmed(self, preset):
 		try:
-			self.zyngui.curlayer.engine.delete_preset(self.zyngui.curlayer.bank_info, preset)
+			count = self.zyngui.curlayer.engine.delete_preset(self.zyngui.curlayer.bank_info, preset)
 			self.zyngui.curlayer.remove_preset_fav(preset)
 			self.zyngui.close_screen()
+			if count == 0:
+				self.zyngui.close_screen()
 		except Exception as e:
 			logging.error("Failed to delete preset => {}".format(e))
 
@@ -126,7 +140,7 @@ class zynthian_gui_preset(zynthian_gui_selector):
 	def switch(self, swi, t='S'):
 		if swi == 1:
 			if t == 'S':
-				if len(self.zyngui.curlayer.bank_list)>1:
+				if len(self.zyngui.curlayer.bank_list) > 1:
 					self.zyngui.replace_screen('bank')
 					return True
 		elif swi == 2:

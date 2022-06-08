@@ -4,7 +4,7 @@
  *
  * Library to mix channels to stereo output
  *
- * Copyright (C) 2019 Brian Walton <brian@riban.co.uk>
+ * Copyright (C) 2019-2022 Brian Walton <brian@riban.co.uk>
  *
  * ******************************************************************
  *
@@ -28,20 +28,24 @@
 #include <string.h> // provides memset
 #include <math.h> //provides fabs
 #include <unistd.h> // provides sleep
+#include <pthread.h> //provides multithreading
 
 #include "mixer.h"
 
 #include "tinyosc.h"
 #include <arpa/inet.h> // provides inet_pton
 
-char g_oscbuffer[1024];
+char g_oscbuffer[1024]; // Used to send OSC messages
 char g_oscpath[20]; //!@todo Ensure path length is sufficient for all paths, e.g. /mixer/faderxxx
 int g_oscfd = -1; // File descriptor for OSC socket
 int g_bOsc = 0; // True if OSC client subscribed
+pthread_t g_eventThread; // ID of low priority event thread
+int g_sendEvents = 1; // Set to 0 to exit event thread
 
 #define DEBUG
 
-#define MAX_CHANNELS 16
+#define MAX_CHANNELS 17
+#define MAIN_CHANNEL 256
 #define MAX_OSC_CLIENTS 5
 
 struct dynamic
@@ -59,12 +63,19 @@ struct dynamic
     int mute; // 1 if muted
     int solo; // 1 if solo
     int mono; // 1 if mono
+    int phase; // 1 if channel B phase reversed
     int routed; // 1 if source routed to channel
 };
 
 jack_client_t * g_pJackClient;
 struct dynamic g_dynamic[MAX_CHANNELS];
 struct dynamic g_mainOutput;
+jack_port_t * g_mainSendA;
+jack_port_t * g_mainSendB;
+jack_port_t * g_mainReturnA;
+jack_port_t * g_mainReturnB;
+int g_mainReturnRoutedA = 0;
+int g_mainReturnRoutedB = 0;
 int g_bDpm = 1;
 unsigned int g_nDampingCount = 0;
 unsigned int g_nDampingPeriod = 10; // Quantity of cycles between applying DPM damping decay
@@ -109,14 +120,36 @@ void sendOscInt(const char* path, int value)
     }
 }
 
+void* eventThreadFn(void * param) {
+    while(g_sendEvents) {
+        if(g_nDampingCount == 0) {
+            for(unsigned int chan = 0; chan < MAX_CHANNELS; chan++) {
+                sprintf(g_oscdpm, "/mixer/dpm%da", chan);
+                sendOscFloat(g_oscdpm, convertToDBFS(g_dynamic[chan].holdA));
+                sprintf(g_oscdpm, "/mixer/dpm%db", chan);
+                sendOscFloat(g_oscdpm, convertToDBFS(g_dynamic[chan].holdB));
+                sendOscFloat("/mixer/dpmA", convertToDBFS(g_mainOutput.holdA));
+                sendOscFloat("/mixer/dpmB", convertToDBFS(g_mainOutput.holdB));
+            }
+        }
+        usleep(10000);
+    }
+    pthread_exit(NULL);
+}
+
 static int onJackProcess(jack_nframes_t nFrames, void *pArgs)
 {
-    jack_default_audio_sample_t *pInA, *pInB, *pOutA, *pOutB;
+    jack_default_audio_sample_t *pInA, *pInB, *pOutA, *pOutB, *pSendA, *pSendB, *pReturnA, *pReturnB;
 
     pOutA = jack_port_get_buffer(g_mainOutput.portA, nFrames);
     pOutB = jack_port_get_buffer(g_mainOutput.portB, nFrames);
     memset(pOutA, 0.0, nFrames * sizeof(jack_default_audio_sample_t));
     memset(pOutB, 0.0, nFrames * sizeof(jack_default_audio_sample_t));
+
+    pSendA = jack_port_get_buffer(g_mainSendA, nFrames);
+    pSendB = jack_port_get_buffer(g_mainSendB, nFrames);
+    memset(pSendA, 0.0, nFrames * sizeof(jack_default_audio_sample_t));
+    memset(pSendB, 0.0, nFrames * sizeof(jack_default_audio_sample_t));
 
     unsigned int frame, chan;
     float curLevelA, curLevelB, reqLevelA, reqLevelB, fDeltaA, fDeltaB, fSampleA, fSampleB, fSampleM;
@@ -167,11 +200,14 @@ static int onJackProcess(jack_nframes_t nFrames, void *pArgs)
                 for(frame = 0; frame < nFrames; frame++)
                 {
                     fSampleM = pInA[frame];
-                    fSampleM += pInB[frame];
+                    if(g_dynamic[chan].phase)
+                        fSampleM -= pInB[frame];
+                    else
+                        fSampleM += pInB[frame];
                     fSampleA = fSampleM * curLevelA / 2;
                     fSampleB = fSampleM * curLevelB / 2;
-                    pOutA[frame] += fSampleA;
-                    pOutB[frame] += fSampleB;
+                    pSendA[frame] += fSampleA;
+                    pSendB[frame] += fSampleB;
                     curLevelA += fDeltaA;
                     curLevelB += fDeltaB;
                     if(g_bDpm || g_bOsc)
@@ -190,9 +226,12 @@ static int onJackProcess(jack_nframes_t nFrames, void *pArgs)
                 for(frame = 0; frame < nFrames; frame++)
                 {
                     fSampleA = pInA[frame] * curLevelA;
-                    pOutA[frame] += fSampleA;
-                    fSampleB = pInB[frame] * curLevelB;
-                    pOutB[frame] += fSampleB;
+                    pSendA[frame] += fSampleA;
+                    if(g_dynamic[chan].phase)
+                        fSampleB = -pInB[frame] * curLevelB;
+                    else
+                        fSampleB = pInB[frame] * curLevelB;
+                    pSendB[frame] += fSampleB;
                     curLevelA += fDeltaA;
                     curLevelB += fDeltaB;
                     if(g_bDpm || g_bOsc)
@@ -224,10 +263,6 @@ static int onJackProcess(jack_nframes_t nFrames, void *pArgs)
                     // Only update damping release each g_nDampingCount cycles
                     g_dynamic[chan].dpmA *= g_fDpmDecay;
                     g_dynamic[chan].dpmB *= g_fDpmDecay;
-                    sprintf(g_oscdpm, "/mixer/dpm%da", chan);
-                    sendOscFloat(g_oscdpm, convertToDBFS(g_dynamic[chan].holdA));
-                    sprintf(g_oscdpm, "/mixer/dpm%db", chan);
-                    sendOscFloat(g_oscdpm, convertToDBFS(g_dynamic[chan].holdB));
                 }
             }
         }
@@ -265,8 +300,21 @@ static int onJackProcess(jack_nframes_t nFrames, void *pArgs)
 
     fDeltaA = (reqLevelA - curLevelA) / nFrames;
     fDeltaB = (reqLevelB - curLevelB) / nFrames;
+
+    pReturnA = jack_port_get_buffer(g_mainReturnA, nFrames);
+    pReturnB = jack_port_get_buffer(g_mainReturnB, nFrames);
+
     for(frame = 0; frame < nFrames; frame++)
     {
+        if(g_mainReturnRoutedA)
+            pOutA[frame] = pReturnA[frame];
+        else
+            pOutA[frame] = pSendA[frame];
+        if(g_mainReturnRoutedB)
+            pOutB[frame] = pReturnB[frame];
+        else
+            pOutB[frame] = pSendB[frame];
+       
         if(g_mainOutput.mono)
         {
             fSampleM = (pOutA[frame] + pOutB[frame]) / 2;
@@ -300,8 +348,6 @@ static int onJackProcess(jack_nframes_t nFrames, void *pArgs)
         g_mainOutput.dpmA *= g_fDpmDecay;
         g_mainOutput.dpmB *= g_fDpmDecay;
         g_nDampingCount = g_nDampingPeriod;
-        sendOscFloat("/mixer/dpmA", convertToDBFS(g_mainOutput.holdA));
-        sendOscFloat("/mixer/dpmB", convertToDBFS(g_mainOutput.holdB));
     }
 
     // Damping and hold counts are used throughout cycle so update at end of cycle
@@ -316,11 +362,13 @@ void onJackConnect(jack_port_id_t source, jack_port_id_t dest, int connect, void
     unsigned int chan;
     for(chan = 0; chan < MAX_CHANNELS; chan++)
     {
-        if(jack_port_connected(g_dynamic[chan].portA) > 0 && (jack_port_connected(g_dynamic[chan].portA) > 0))
+        if(jack_port_connected(g_dynamic[chan].portA) > 0 || (jack_port_connected(g_dynamic[chan].portB) > 0))
             g_dynamic[chan].routed = 1;
         else
             g_dynamic[chan].routed = 0;
     }
+    g_mainReturnRoutedA = jack_port_connected(g_mainReturnA) > 0;
+    g_mainReturnRoutedB = jack_port_connected(g_mainReturnB) > 0;
 }
 
 int onJackSamplerate(jack_nframes_t nSamplerate, void *arg)
@@ -368,6 +416,7 @@ int init()
         g_dynamic[chan].balance = 0.0;
         g_dynamic[chan].reqbalance = 0.0;
         g_dynamic[chan].mute = 0;
+        g_dynamic[chan].phase = 0;
         char sName[10];
         sprintf(sName, "input_%02da", chan + 1);
         if (!(g_dynamic[chan].portA = jack_port_register(g_pJackClient, sName, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0)))
@@ -382,6 +431,17 @@ int init()
             exit(1);
         }
     }
+    if (!(g_mainReturnA = jack_port_register(g_pJackClient, "return_a", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0)))
+    {
+        fprintf(stderr, "libzynmixer: Cannot register return_a\n");
+        exit(1);
+    }
+    if (!(g_mainReturnB = jack_port_register(g_pJackClient, "return_b", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0)))
+    {
+        fprintf(stderr, "libzynmixer: Cannot register return_b\n");
+        exit(1);
+    }
+
     #ifdef DEBUG
     fprintf(stderr,"libzynmixer: Created input ports\n");
     #endif
@@ -397,11 +457,22 @@ int init()
         fprintf(stderr, "libzynmixer: Cannot register output B\n");
         exit(1);
     }
+    if(!(g_mainSendA = jack_port_register(g_pJackClient, "send_a", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0)))
+    {
+        fprintf(stderr, "libzynmixer: Cannot register send A\n");
+        exit(1);
+    }
+    if(!(g_mainSendB = jack_port_register(g_pJackClient, "send_b", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0)))
+    {
+        fprintf(stderr, "libzynmixer: Cannot register send B\n");
+        exit(1);
+    }
     g_mainOutput.level = 0.0;
     g_mainOutput.reqlevel = 0.8;
     g_mainOutput.balance = 0.0;
     g_mainOutput.reqbalance = 0.0;
     g_mainOutput.mute = 0;
+    g_mainOutput.phase = 0;
     g_mainOutput.routed = 1;
 
     #ifdef DEBUG
@@ -426,6 +497,15 @@ int init()
     fprintf(stderr,"libzynmixer: Activated client\n");
     #endif
 
+    // Configure and start event thread
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+    if(pthread_create(&g_eventThread, &attr, eventThreadFn, NULL)) {
+        fprintf(stderr, "zynmixer error: failed to create event thread\n");
+        return 0;
+    }
+
     return 1;
 }
 
@@ -433,16 +513,21 @@ void end() {
     if(g_pJackClient)
     {
         // Mute output and wait for soft mute to occur before closing link with jack server
-        setLevel(MAX_CHANNELS, 0.0);
+        setLevel(MAIN_CHANNEL, 0.0);
         usleep(100000);
         jack_client_close(g_pJackClient);
     }
+    g_sendEvents = 0;
+    void* status;
+    pthread_join(g_eventThread, &status);
 }
 
 void setLevel(int channel, float level)
 {
-    if(channel >= MAX_CHANNELS)
+    if(channel >= MAX_CHANNELS) {
+        channel = MAIN_CHANNEL;
         g_mainOutput.reqlevel = level;
+    }
     else
         g_dynamic[channel].reqlevel = level;
     sprintf(g_oscpath, "/mixer/fader%d", channel);
@@ -460,8 +545,10 @@ void setBalance(int channel, float balance)
 {
     if(fabs(balance) > 1)
         return;
-    if(channel >= MAX_CHANNELS)
+    if(channel >= MAX_CHANNELS) {
+        channel = MAIN_CHANNEL;
         g_mainOutput.reqbalance = balance;
+    }
     else
         g_dynamic[channel].reqbalance = balance;
     sprintf(g_oscpath, "/mixer/balance%d", channel);
@@ -477,8 +564,10 @@ float getBalance(int channel)
 
 void setMute(int channel, int mute)
 {
-    if(channel >= MAX_CHANNELS)
+    if(channel >= MAX_CHANNELS) {
+        channel = MAX_CHANNELS;
         g_mainOutput.mute = mute;
+    }
     else
         g_dynamic[channel].mute = mute;
     sprintf(g_oscpath, "/mixer/mute%d", channel);
@@ -490,6 +579,25 @@ int getMute(int channel)
     if(channel >= MAX_CHANNELS)
         return g_mainOutput.mute;
     return g_dynamic[channel].mute;
+}
+
+void setPhase(int channel, int phase)
+{
+    if(channel >= MAX_CHANNELS) {
+        channel = MAIN_CHANNEL;
+        g_mainOutput.phase = phase;
+    }
+    else
+        g_dynamic[channel].phase = phase;
+    sprintf(g_oscpath, "/mixer/phase%d", channel);
+    sendOscInt(g_oscpath, phase);
+}
+
+int getPhase(int channel)
+{
+    if(channel >= MAX_CHANNELS)
+        return g_mainOutput.phase;
+    return g_dynamic[channel].phase;
 }
 
 void setSolo(int channel, int solo)
@@ -513,7 +621,7 @@ void setSolo(int channel, int solo)
     g_mainOutput.solo = 0;
     for(int nChannel = 0; nChannel < MAX_CHANNELS; ++ nChannel)
         g_mainOutput.solo |= g_dynamic[nChannel].solo;
-    sprintf(g_oscpath, "/mixer/solo%d", MAX_CHANNELS);
+    sprintf(g_oscpath, "/mixer/solo%d", MAIN_CHANNEL);
     sendOscInt(g_oscpath, g_mainOutput.solo);
 }
 
@@ -537,10 +645,25 @@ void toggleMute(int channel)
         setMute(channel, 1);
 }
 
+void togglePhase(int channel)
+{
+    int phase;
+    if(channel >= MAX_CHANNELS)
+        phase = g_mainOutput.phase;
+    else
+        phase = g_dynamic[channel].phase;
+    if(phase)
+        setPhase(channel, 0);
+    else
+        setPhase(channel, 1);
+}
+
 
 void setMono(int channel, int mono){
-    if(channel >= MAX_CHANNELS)
+    if(channel >= MAX_CHANNELS) {
+        channel = MAIN_CHANNEL;
         g_mainOutput.mono = (mono != 0);
+    }
     else
         g_dynamic[channel].mono = (mono != 0);
     sprintf(g_oscpath, "/mixer/mono%d", channel);
@@ -552,6 +675,18 @@ int getMono(int channel)
     if(channel >= MAX_CHANNELS)
         return g_mainOutput.mono;
     return g_dynamic[channel].mono;
+}
+
+void reset(int channel)
+{
+    if(channel >= MAX_CHANNELS)
+        channel = MAIN_CHANNEL;
+    setLevel(channel, 0.8);
+    setBalance(channel, 0.0);
+    setMute(channel, 0);
+    setMono(channel, 0);
+    setPhase(channel, 0);
+    setSolo(channel, 0);
 }
 
 int isChannelRouted(int channel)
@@ -615,14 +750,21 @@ int addOscClient(const char* client)
             return -1;
         }
         fprintf(stderr, "libzynmixer: Added OSC client %d: %s\n", i, client);
-        for(int nChannel = 0; nChannel <= MAX_CHANNELS; ++nChannel)
+        for(int nChannel = 0; nChannel < MAX_CHANNELS; ++nChannel)
         {
             setBalance(nChannel, getBalance(nChannel));
             setLevel(nChannel, getLevel(nChannel));
             setMono(nChannel, getMono(nChannel));
             setMute(nChannel, getMute(nChannel));
+            setPhase(nChannel, getPhase(nChannel));
             setSolo(nChannel, getSolo(nChannel));
         }
+        setBalance(MAIN_CHANNEL, getBalance(MAIN_CHANNEL));
+        setLevel(MAIN_CHANNEL, getLevel(MAIN_CHANNEL));
+        setMono(MAIN_CHANNEL, getMono(MAIN_CHANNEL));
+        setMute(MAIN_CHANNEL, getMute(MAIN_CHANNEL));
+        setPhase(MAIN_CHANNEL, getPhase(MAIN_CHANNEL));
+        setSolo(MAIN_CHANNEL, getSolo(MAIN_CHANNEL));
         g_bOsc = 1;
         return i;
     }
