@@ -828,7 +828,7 @@ class zynthian_gui_admin(zynthian_gui_selector):
 			self.zyngui.show_confirm("Updates are available. Do you want to apply updates now?", self.update_system)
 
 
-	def update_system(self):
+	def update_system(self, unused):
 		logging.info("UPDATE SYSTEM")
 		self.zyngui.show_info("UPDATE SYSTEM")
 		self.start_command([self.sys_dir + "/scripts/update_system.sh"])
