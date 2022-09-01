@@ -49,6 +49,7 @@ class zynthian_gui_admin(zynthian_gui_selector):
 
 	def __init__(self):
 		self.commands=None
+		self.execute_end_cb = None
 		self.thread=None
 		self.child_pid=None
 		self.last_action=None
@@ -214,6 +215,9 @@ class zynthian_gui_admin(zynthian_gui_selector):
 		self.zyngui.add_info("\n\n")
 		self.zyngui.hide_info_timer(5000)
 		self.zyngui.stop_loading()
+		if self.execute_end_cb:
+			self.execute_end_cb()
+		self.execute_end_cb = None
 
 
 	def start_command(self,cmds):
@@ -251,6 +255,7 @@ class zynthian_gui_admin(zynthian_gui_selector):
 				self.zyngui.add_info(result,"ERROR")
 
 		self.commands=None
+		self.execute_end_cb = None
 		self.zyngui.hide_info_timer(5000)
 		#self.zyngui.stop_loading()
 
@@ -813,7 +818,13 @@ class zynthian_gui_admin(zynthian_gui_selector):
 
 	def check_for_updates(self):
 		self.zyngui.show_info("CHECK FOR UPDATES")
+		self.execute_end_cb = self.offer_update
 		self.start_command(["git -C /zynthian/zyncoder remote update; git -C /zynthian/zynthian-ui remote update; git -C /zynthian/zynthian-sys remote update; git -C /zynthian/zynthian-webconf remote update; git -C /zynthian/zynthian-data remote update"])
+
+
+	def offer_update(self):
+		if self.is_update_available():
+			self.zyngui.show_confirm("Updates are available. Do you want to apply updates now?", self.update_system)
 
 
 	def update_system(self):
