@@ -823,6 +823,7 @@ class zynthian_gui_admin(zynthian_gui_selector):
 
 
 	def offer_update(self):
+		# Comment for testing
 		if self.is_update_available():
 			self.zyngui.show_confirm("Updates are available. Do you want to apply updates now?", self.update_system)
 
