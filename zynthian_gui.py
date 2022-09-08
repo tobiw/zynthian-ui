@@ -952,6 +952,7 @@ class zynthian_gui:
 
 
 	def restore_curlayer(self):
+		return
 		if self._curlayer:
 			self.set_curlayer(self._curlayer)
 			self._curlayer = None

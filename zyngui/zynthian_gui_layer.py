@@ -195,13 +195,13 @@ class zynthian_gui_layer(zynthian_gui_selector):
 
 	def get_root_layer_index(self, layer=None):
 		if layer is None:
-			if self.amixer_layer==self.zyngui.curlayer:
+			if self.amixer_layer == self.zyngui.curlayer:
 				layer = self.zyngui._curlayer
 			else:
 				layer = self.zyngui.curlayer
 
 		try:
-			return self.root_layers.index(layer)
+			return self.root_layers.index(self.get_root_layer_by_midi_chan(layer.midi_chan))
 		except:
 			return None
 
@@ -316,7 +316,8 @@ class zynthian_gui_layer(zynthian_gui_selector):
 
 
 	def add_layer_engine(self, eng, midi_chan=None):
-		self.add_layer_eng=eng
+		self.add_layer_eng = eng
+		self.zyngui.screens['control'].reset()
 
 		#if eng=='MD':
 		#	self.add_layer_midich(None)

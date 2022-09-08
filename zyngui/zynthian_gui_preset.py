@@ -63,6 +63,10 @@ class zynthian_gui_preset(zynthian_gui_selector):
 			super().show()
 
 
+	def switch_select(self, t='S'):
+		self.select_action(self.index, t)
+
+
 	def select_action(self, i, t='S'):
 		if t=='S':
 			self.zyngui.curlayer.set_preset(i)

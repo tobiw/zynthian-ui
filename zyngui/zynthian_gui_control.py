@@ -55,6 +55,8 @@ class zynthian_gui_control(zynthian_gui_selector):
 		self.screen_name = None
 		self.zgui_controllers = []
 		self.midi_learning = False
+		self.layers_changed = True
+
 
 		self.buttonbar_config = [
 			(1, 'PRESETS\n[mixer]'),
@@ -116,11 +118,10 @@ class zynthian_gui_control(zynthian_gui_selector):
 
 
 	def fill_list(self):
-		self.list_data = []
-
 		if not self.zyngui.curlayer:
 			logging.error("Can't fill control screen list for None layer!")
 			return
+		self.list_data = []
 
 		if self.zyngui.curlayer.engine.nickname=="MX":
 			self.layers = [self.zyngui.curlayer]
@@ -128,7 +129,7 @@ class zynthian_gui_control(zynthian_gui_selector):
 			# Get MIDI effects not including root
 			self.layers = self.zyngui.screens['layer'].get_midichain_layers()
 			# Get root
-			self.layers.append(self.zyngui.curlayer)
+			self.layers.append(self.zyngui.screens['layer'].get_root_layer_by_midi_chan(self.zyngui.curlayer.midi_chan))
 			# Get audio effects not including root
 			self.layers += self.zyngui.screens['layer'].get_fxchain_layers()
 
@@ -136,15 +137,17 @@ class zynthian_gui_control(zynthian_gui_selector):
 		for layer in self.layers:
 			j = 0
 			screen_list = layer.get_ctrl_screens()
-			if len(screen_list)>0:
+			if len(screen_list) > 0:
 				if len(self.layers) > 1:
 					self.list_data.append((None, None, "> {}".format(layer.engine.name.split("/")[-1])))
 				for cscr in screen_list:
 					self.list_data.append((cscr, i, cscr, layer, j))
 					i += 1
 					j += 1
+					if self.layers_changed and cscr and layer == self.zyngui.curlayer:
+						self.layers_changed = False
+						self.index = i
 
-		self.index = self.zyngui.curlayer.get_current_screen_index()
 		super().fill_list()
 
 
@@ -202,6 +205,10 @@ class zynthian_gui_control(zynthian_gui_selector):
 			widget.grid_remove()
 			widget.hide()
 		self.listbox.grid()
+
+
+	def reset(self):
+		self.layers_changed = True
 
 
 	def set_controller_screen(self):
