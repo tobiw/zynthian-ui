@@ -142,7 +142,7 @@ function splash_zynthian_error_exit_ip() {
         splash_zynthian_message "$zynthian_message" "$ZYNTHIAN_CONFIG_DIR/img/fb_zynthian_error.png"
 }
 
-
+export DISPLAY=:0
 backlight_on
 screensaver_off
 
@@ -188,9 +188,10 @@ fi
 #------------------------------------------------------------------------------
 # Run Zynthian-UI
 #------------------------------------------------------------------------------
-
 splash_zynthian
 load_config_env
+
+trap "/usr/local/bin/send_osc 1370 '/CUIA/EXIT_UI'" SIGHUP SIGINT SIGTERM
 
 while true; do
 
@@ -233,4 +234,5 @@ while true; do
 	esac
 done
 
+exit 0
 #------------------------------------------------------------------------------

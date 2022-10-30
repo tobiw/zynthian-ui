@@ -686,6 +686,10 @@ class zynthian_gui:
 
 	def stop(self):
 		logging.info("STOPPING ZYNTHIAN-UI ...")
+		if zynthian_gui_config.restore_last_state:
+			self.screens['snapshot'].save_last_state_snapshot()
+		else:
+			self.screens['snapshot'].delete_last_state_snapshot()
 		zynautoconnect.stop()
 		self.screens['layer'].reset()
 		self.screens['midi_recorder'].stop_playing() # Need to stop timing thread
@@ -1132,10 +1136,15 @@ class zynthian_gui:
 			self.screens['admin'].reboot_confirmed()
 
 		elif cuia == "RESTART_UI":
-			self.screens['admin'].restart_gui()
+			logging.info("RESTART ZYNTHIAN-UI")
+			self.show_splash("Restarting UI...")
+			self.exit(102)
 
 		elif cuia == "EXIT_UI":
-			self.screens['admin'].exit_to_console()
+			#TODO: Should we provide this CUIA method to stop Zynthian?
+			logging.info("EXITING ZYNTHIAN-UI")
+			self.show_splash("Exiting...")
+			self.exit(101)
 
 		elif cuia == "RELOAD_MIDI_CONFIG":
 			self.reload_midi_config()

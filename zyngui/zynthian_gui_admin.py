@@ -826,14 +826,12 @@ class zynthian_gui_admin(zynthian_gui_selector):
 	def restart_gui(self):
 		logging.info("RESTART ZYNTHIAN-UI")
 		self.zyngui.show_splash("Restarting UI...")
-		self.last_state_action()
 		self.zyngui.exit(102)
 
 
 	def exit_to_console(self):
 		logging.info("EXIT TO CONSOLE")
 		self.zyngui.show_splash("Exiting...")
-		self.last_state_action()
 		self.zyngui.exit(101)
 
 
@@ -844,7 +842,6 @@ class zynthian_gui_admin(zynthian_gui_selector):
 	def reboot_confirmed(self, params=None):
 		logging.info("REBOOT")
 		self.zyngui.show_splash("Rebooting...")
-		self.last_state_action()
 		self.zyngui.exit(100)
 
 
@@ -855,15 +852,8 @@ class zynthian_gui_admin(zynthian_gui_selector):
 	def power_off_confirmed(self, params=None):
 		logging.info("POWER OFF")
 		self.zyngui.show_splash("Powering Off...")
-		self.last_state_action()
 		self.zyngui.exit(0)
 
-
-	def last_state_action(self):
-		if zynthian_gui_config.restore_last_state:
-			self.zyngui.screens['snapshot'].save_last_state_snapshot()
-		else:
-			self.zyngui.screens['snapshot'].delete_last_state_snapshot()
 
 
 #------------------------------------------------------------------------------
