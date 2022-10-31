@@ -68,11 +68,11 @@ function backlight_off() {
 
 function screensaver_off() {
 	# Don't activate screensaver
-	xset s off
+	xset -display :0 s off
 	# Disable DPMS (Energy Star) features.
-	xset -dpms
+	xset -display :0 -dpms
 	# Don't blank the video device
-	xset s noblank
+	xset -display :0 s noblank
 }
 
 
@@ -144,7 +144,7 @@ function splash_zynthian_error_exit_ip() {
 
 export DISPLAY=:0
 backlight_on
-screensaver_off
+#screensaver_off
 
 #------------------------------------------------------------------------------
 # Test splash screen generator
@@ -191,7 +191,8 @@ fi
 splash_zynthian
 load_config_env
 
-trap "/usr/local/bin/send_osc 1370 '/CUIA/EXIT_UI'" SIGHUP SIGINT SIGTERM
+exiting=0
+trap "exiting=1; /usr/local/bin/send_osc 1370 '/CUIA/EXIT_UI'" SIGHUP SIGINT SIGTERM
 
 while true; do
 
@@ -228,6 +229,10 @@ while true; do
 		;;
 		*)
 			splash_zynthian_error_exit_ip $status
+			if [ $exiting -ne 0 ]; then
+				echo "zynthian_gui crashed during exit!"
+				break
+			fi
 			load_config_env
 			sleep 10
 		;;
