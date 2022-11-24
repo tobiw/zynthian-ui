@@ -16,7 +16,7 @@ The list of supported synth engines is quite long and includes, among others:
 + [Pianoteq](https://www.modartt.com/pianoteq) (Non Free! Trial version included)
 + [Aeolus](https://kokkinizita.linuxaudio.org/linuxaudio/aeolus/) (Pipe Organ simulator)
 + [Dexed](https://asb2m10.github.io/dexed/) (DX7 emulator)
-+ [OB-Xd](https://www.discodsp.com/obxd/https://asb2m10.github.io/dexed/) (Oberheim OB-X emulator)
++ [OB-Xd](https://www.discodsp.com/obxd/) (Oberheim OB-X emulator)
 + [TAL NoizeMaker](https://tal-software.com/products/tal-noisemaker) (Virtual Analog Synthesizer)
 + [MOD-HOST + MOD-UI](https://github.com/moddevices) (Plugin Host & Web GUI by [ModDevices](http://moddevices.com))
 + [And many more ...](http://wiki.zynthian.org/index.php/Zynthian_Supported_Synth_Engines)
